@@ -3,19 +3,20 @@
 Quota management for Jean's Claude subscription, in two halves that never act at the same time. **Design stage: nothing is built yet.**
 
 ```
-                        the tracker (agent-tracker)
-                window %, week %, resets, $ and tokens per session
-                                    │
-                        projected % at the reset
-                                    │
-        ┌───────────────────────────┼────────────────────────────┐
-   spare quota                   normal                    lockout ahead
-        │                     (nobody acts)                      │
-        ▼                                                        ▼
-  maximizer/                                               protector/
-  spends quota that would be lost                          pauses big jobs, so Jean
-  on optional agents' tasks                                always keeps quota for
-  (launched by the tasks repo)                             small urgent work
+                     the tracker (agent-tracker)
+             window %, week %, resets, $ and tokens per session
+                                  │
+                      projected % at each reset
+                                  │
+   window (5 h)   0 % ────────── normal ──────────┤─ lockout ahead ─ 100 %
+   week (7 days)  0 % ─ spare quota ─┤─ normal ───┤─ lockout ahead ─ 100 %
+                           │                              │
+                           ▼                              ▼
+                      maximizer/                     protector/
+            week only: spends the quota      window and week: pauses big
+            the week can never use, on       jobs, so Jean always keeps
+            optional agents' tasks           quota for small urgent work
+            (launched by the tasks repo)
 ```
 
 | Half | State | Read first |

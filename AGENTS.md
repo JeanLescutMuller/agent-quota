@@ -5,7 +5,7 @@
 ## Rules
 
 - **Design stage: nothing is built.** Each half has its own design files: [`protector/`](protector/), [`maximizer/`](maximizer/). Shared points: [`CONSIDERATIONS.md`](CONSIDERATIONS.md), [`REQUIREMENTS.md`](REQUIREMENTS.md).
-- **The two halves never act at the same time** (R1): any rule that lets one act must say which check makes the other impossible. → [`CONSIDERATIONS.md`](CONSIDERATIONS.md) §2
+- **The two halves never act at the same time** (R1): any rule that lets one act must say which check makes the other impossible. The maximizer reads the week only; the protector, the window and the week. → [`CONSIDERATIONS.md`](CONSIDERATIONS.md) §1–2
 - **Read the quota only through agent-tracker** (`/Users/jeanlescut/dev/agent-tracker/FOR_READERS.md`): never write its files; a quota % is account-wide, never a session's.
 - **The maximizer's launches go through the `tasks` repo's launcher** (`/Users/jeanlescut/dev/tasks`); never a second launcher here.
 
