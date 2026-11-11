@@ -24,4 +24,4 @@ Quota management for Jean's Claude subscription, in two halves that never act at
 | protector | considerations: scenarios, risks, costs | [`protector/CONSIDERATIONS.md`](protector/CONSIDERATIONS.md) |
 | maximizer | design agreed in part (moved from `tasks`, 2026-11-11) | [`maximizer/DESIGN.md`](maximizer/DESIGN.md) |
 | both | how they stay apart | [`CONSIDERATIONS.md`](CONSIDERATIONS.md), [`REQUIREMENTS.md`](REQUIREMENTS.md) |
-| tools found online | 2026-11-11 | [`doc/existing_tools.md`](doc/existing_tools.md) |
+| what to build on | Jean's repos and tools online, 2026-11-11 | [`doc/prior_work.md`](doc/prior_work.md) |

@@ -46,5 +46,5 @@ week (7 days)  0 % ── spare quota ──┤──── normal ────�
 | $ and tokens per session, per folder | the tracker's databases (`FOR_READERS.md`) | exists |
 | B, B_week | measured by the maximizer (`maximizer/DESIGN.md` §6) | measured once, 2026-10-12 |
 
-- **A stale path already broke a guard.** The `tasks` auto-launch reads `~/opt/agent-usage-tracker/data/claude/account_quotas.db`; the tracker was renamed agent-tracker on 2026-11-07 and that folder no longer exists (checked 2026-11-11), so its quota guard is skipped ("no quota database here"). One shared reader avoids this happening twice.
+- **The `tasks` quota guard is not a safe base.** It reads the tracker's new path since 2026-11-07 (`tasks` commit `bfb3cbb`; its `doc/task_manager.md` §4.2 still names the old one), but it opens the database with `mode=ro` (the tracker's rule 2 says macOS intermittently refuses it), lets launches through when the database is missing or unreadable, and checks neither the reading's age nor the week (`/Users/jeanlescut/dev/tasks/src/launch/step.py`, checked 2026-11-11). One shared reader, failing safe, avoids this.
 - **Mac and VM share one account.** Both machines burn the same windows; a half that runs on one machine only sees the other's sessions through the tracker.

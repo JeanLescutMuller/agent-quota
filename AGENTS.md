@@ -47,4 +47,4 @@ The only words for these concepts, in every file and when talking to Jean. A new
 |---|---|
 | what the protector must weigh: scenarios, risks, costs | [`protector/CONSIDERATIONS.md`](protector/CONSIDERATIONS.md) |
 | the maximizer's design (moved from `tasks` on 2026-11-11) | [`maximizer/DESIGN.md`](maximizer/DESIGN.md) |
-| the existing tools found online (2026-11-11) | [`doc/existing_tools.md`](doc/existing_tools.md) |
+| what to build on: Jean's repos, tools online, facts about Claude Code (2026-11-11) | [`doc/prior_work.md`](doc/prior_work.md) |

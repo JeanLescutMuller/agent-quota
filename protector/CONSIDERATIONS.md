@@ -101,14 +101,16 @@ Worked example: reserve 8 %, a checkpoint that takes 5 minutes and costs ≈ 2 %
 
 ## 9. To investigate
 
+Partly answered by the research of 2026-11-11: [`../doc/prior_work.md`](../doc/prior_work.md) §2.
+
 | # | Question | Why it matters | Evidence so far |
 |---|---|---|---|
-| I1 | What exactly happens to a session and its subagents when the limit is hit mid-request? Can a cut subagent be continued? | decides whether "let it hit the limit" is ever acceptable | Jean saw subagents lose their work; a public issue reports the same ([claudeissues #89429](https://claudeissues.com/issue/89429-session-token-limits-repeatedly-kill-in-flight-subagents-mid-task-resume-ux-is-m)) |
-| I2 | Can a PreToolUse hook hold a session for hours? Do hooks fire inside subagents, foreground and background? | decides whether a freeze is possible | not tested |
+| I1 | What exactly happens to a session and its subagents when the limit is hit mid-request? Can a cut subagent be continued? | decides whether "let it hit the limit" is ever acceptable | Jean saw subagents lose their work; a public issue reports the same ([claudeissues #89429](https://claudeissues.com/issue/89429-session-token-limits-repeatedly-kill-in-flight-subagents-mid-task-resume-ux-is-m)) → mostly answered in `../doc/prior_work.md` §2: a cut subagent can be continued by `SendMessage` to its id (docs, user-verified); still to see on Jean's machine |
+| I2 | Can a PreToolUse hook hold a session for hours? Do hooks fire inside subagents, foreground and background? | decides whether a freeze is possible | not tested → partly answered in `../doc/prior_work.md` §2: hooks fire in subagents; `timeout` has no documented maximum and fails open unless `onFailure:"block"`; a hold of hours is untested anywhere |
 | I3 | How fresh is the quota % while a big job runs? `claude -p` runs no status line, so its own use reaches the reading only through other sessions or the tracker's poller | a pause decided on a stale reading (S10) | not measured |
 | I4 | What does a resume after a 5-hour pause cost, for a large context? | the cost of every pause (§4) | not measured |
 | I5 | How long does a checkpoint take with N subagents, and what does it cost? | the lead of §8 | not measured |
-| I6 | What does Claude Code itself now do at the limit? A "graceful stopping point" was reported (2026-09-25, not confirmed from Anthropic) and `/config` has "Continue automatically at usage limit" (reported broken with several sessions) | it may cover part of this, or behave differently from what I1 finds | [`../doc/existing_tools.md`](../doc/existing_tools.md) |
+| I6 | What does Claude Code itself now do at the limit? A "graceful stopping point" was reported (2026-09-25, not confirmed from Anthropic) and `/config` has "Continue automatically at usage limit" (reported broken with several sessions) | it may cover part of this, or behave differently from what I1 finds | [`../doc/prior_work.md`](../doc/prior_work.md) §2 → answered in `../doc/prior_work.md` §2: auto-continue never covers the week (> 24 h) nor `-p`; the 95 % wrap-up parks sessions with nothing to resume them |
 
 ## 10. What any design must decide
 
