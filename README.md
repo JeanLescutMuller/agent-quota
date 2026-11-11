@@ -1,5 +1,7 @@
 # agent-quota
 
+**Stop hitting Claude's usage limits by surprise, and stop leaving paid quota unused: a protector pauses big jobs before a lockout, a maximizer spends spare weekly quota. For Claude Code subscribers who run long or many sessions.**
+
 Quota management for Jean's Claude subscription, in two halves that never act at the same time. **Design stage: nothing is built yet.**
 
 ```
