@@ -20,7 +20,7 @@ From Jean's point of view only: the benefit, never the mechanism. Words: [`AGENT
 
 | Question | Answer |
 |---|---|
-| One project or two? | one project, two halves (Jean, 2026-11-11) |
+| One project or two? | one project, two halves; one repo, not two, so the check that keeps them apart has one copy (Jean, 2026-11-11). Revisit once code exists, if the protector is worth publishing alone |
 | What starts the maximizer? | only quota of the week that would be lost for good, never a window ending low (Jean, 2026-11-11) |
 | Which meters does the protector watch? | the window and the week (Jean, 2026-11-11) |
 | The two halves' names | protector and maximizer (Jean, 2026-11-11) |
