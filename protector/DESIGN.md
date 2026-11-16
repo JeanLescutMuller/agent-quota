@@ -136,3 +136,5 @@ A bug in a hook with `onFailure:"block"` would block every tool call of every se
 | 3 | The status line shows `statusline.txt` | needs a change in agent-statusline (another repo) |
 | 4 | Interactive sessions labelled nothing but burning fast | warned, never frozen |
 | 5 | The VM: same hook, own telemetry | install there once the Mac has run in `observe` for a while |
+| 6 | Esc in an interactive session cancels a freeze and its call (tested 2026-11-16) | accepted: the next tool call is frozen again; Jean pressing Esc is Jean choosing |
+| 7 | The Mac may sleep during a freeze (untested) | the hook keeps it awake while it holds (`caffeinate -i -w <hook pid>`) |
