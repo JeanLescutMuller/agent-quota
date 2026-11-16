@@ -127,6 +127,26 @@ A bug in a hook with `onFailure:"block"` would block every tool call of every se
 - A replay on the tracker's real quota history: how many lockouts happened, how long, and what v1 would have frozen and when (`doc/replay.md`).
 - An end-to-end test with `claude -p` (as `lab/i2_hook_hold/`): a decision `freeze` holds a session and its subagent; `resume-now` releases it within `HOLD_POLL_S`; `mode observe` never holds.
 
+## As built (2026-11-16)
+
+Built the same day by three agents, 96 unit tests + an end-to-end test ([`../lab/e2e/RESULTS.md`](../lab/e2e/RESULTS.md)); installed on the Mac in mode `observe` at 18:00 UTC. Where the code departs from the text above:
+
+| # | Departure | Why |
+|---|---|---|
+| 1 | `decide()` also takes `previous` (the last decisions) and `trace` (the reasoning, for R47) | who is frozen, and the stagger, need the previous state |
+| 2 | a frozen job is released before the reset only if the meter stays under 100 − reserve with its burn added back | otherwise release → freeze → release in a loop |
+| 3 | while the tracker cannot be read, freezes are kept and nothing new is frozen; overrides still apply | R41 |
+| 4 | `resume-now` lasts like `go-on`: not frozen again until the window resets; both release at once, no stagger | otherwise the next recompute freezes it again |
+| 5 | interactive = `CLAUDE_CODE_ENTRYPOINT` is `cli` (`claude -p` is `sdk-cli`, the Agent SDK `sdk-py`, seen in Jean's transcripts) | R32 |
+| 6 | Jean is told with agent-notify's `notify event WaitingForUser` when a hold starts, `Working` when it ends, once per freeze | R45 |
+| 7 | the hook keeps the Mac awake while it holds (`caffeinate -i -w <pid>`); Esc (SIGTERM) ends the hold quietly, logged "cancelled by Jean (Esc)" | open points 6–7 |
+| 8 | a fifth state, `stale`, when a meter cannot be read; history read over 7 days, ordered by the tracker's `ts`; a fall counts as a reset only from the poller (the week was reset early on 2026-11-13 17:47 UTC with its reset time unchanged) | `../doc/reading.md` |
+
+**Two scenarios where the rule of §4 contradicts [`CONSIDERATIONS.md`](CONSIDERATIONS.md) §3:**
+
+- **S4** (a lockout of ≈ 9 min): v1 freezes the job (harm 12 min > cost 8.8 min), where Jean would probably let it run. The cost, minutes left until 100 %, shrinks near the limit, so harm wins easily there. With 6 min of lockout it runs.
+- **S9** (a big job alone at night): v1 freezes it; R48 (learning Jean's hours) is for later.
+
 ## Open points
 
 | # | Question | Default in v1 |

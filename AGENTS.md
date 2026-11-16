@@ -4,10 +4,19 @@
 
 ## Rules
 
-- **Design stage: nothing is built.** Each half has its own design files: [`protector/`](protector/), [`maximizer/`](maximizer/). Shared points: [`CONSIDERATIONS.md`](CONSIDERATIONS.md), [`REQUIREMENTS.md`](REQUIREMENTS.md).
+- **The protector v1 is built** (`src/agent_quota/`, `bin/agent-quota`; design and as-built: [`protector/DESIGN.md`](protector/DESIGN.md)); **the maximizer is design only** ([`maximizer/`](maximizer/)).
+- **The hook must never break a session**: it fails open, catches everything, and stays fast when nothing is frozen. → [`protector/DESIGN.md`](protector/DESIGN.md) §8
+- **Tests never touch the real state or settings**: `AGENT_QUOTA_HOME`, `AGENT_QUOTA_TRACKER`, `CLAUDE_SETTINGS` point them at temp folders. Shared points: [`CONSIDERATIONS.md`](CONSIDERATIONS.md), [`REQUIREMENTS.md`](REQUIREMENTS.md).
 - **The two halves never act at the same time** (R1): any rule that lets one act must say which check makes the other impossible. The maximizer reads the week only; the protector, the window and the week. → [`CONSIDERATIONS.md`](CONSIDERATIONS.md) §1–2
 - **Read the quota only through agent-tracker** (`/Users/jeanlescut/dev/agent-tracker/FOR_READERS.md`): never write its files; a quota % is account-wide, never a session's.
 - **The maximizer's launches go through the `tasks` repo's launcher** (`/Users/jeanlescut/dev/tasks`); never a second launcher here.
+
+## Commands
+
+| | |
+|---|---|
+| test | `python3 -m unittest discover -s tests` (≈ 7 s) · end to end: `bash lab/e2e/run_e2e.sh <out>` (≈ 2 min, spends a little quota) |
+| deploy | `bash install.sh` (code → `~/opt/agent-quota/`, hook → `~/.claude/settings.json`); `bash uninstall.sh` |
 
 ## Vocabulary
 

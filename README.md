@@ -2,7 +2,15 @@
 
 **Stop hitting Claude's usage limits by surprise, and stop leaving paid quota unused: a protector pauses big jobs before a lockout, a maximizer spends spare weekly quota. For Claude Code subscribers who run long or many sessions.**
 
-Quota management for Jean's Claude subscription, in two halves that never act at the same time. **Design stage: nothing is built yet.**
+Quota management for Jean's Claude subscription, in two halves that never act at the same time. **State (2026-11-16): the protector v1 is built and runs on the Mac in `observe` mode (it decides and logs, holds nothing); the maximizer is designed, not built.**
+
+```
+bash install.sh            # deploy (idempotent); uninstall.sh undoes it
+agent-quota status         # meters, who acts, each session and its decision
+agent-quota mode on        # let the protector freeze big jobs (default: observe)
+agent-quota go-on <id>     # never freeze this session until its window resets
+agent-quota resume-now <id>
+```
 
 ```
                      the tracker (agent-tracker)
