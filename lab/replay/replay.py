@@ -18,8 +18,12 @@ Variants (who may be frozen; nothing was labelled in the history, so AGENT_QUOTA
     subagents  as v1, but an interactive session's subagents are a unit of their own (`<session>#agents`),
            judged by burn rate like a script: freezing it holds the subagents only, never Jean's main thread
            (the hook sees `agent_id` on a subagent's tool call)
+    v1.1   the code as built in v1.1 (2026-11-16): decide() itself makes an interactive session a candidate with
+           scope `subagents`, fed each session's subagents' $ (subagent_usd); a freeze of that scope removes only
+           its subagents' requests. Also, since v1.1, the week's burn rate looks back WEEK_RECENT_H (48 h) for
+           every variant (forecast.burn_rate); `python3 replay.py v1.1-week30` replays v1.1 with the old 30 min
 
-Run: python3 lab/replay/replay.py > lab/replay/out/replay.log 2>&1
+Run: python3 lab/replay/replay.py [variant ...] > lab/replay/out/replay.log 2>&1   (default: v1 burn subagents v1.1)
 """
 import sys
 from collections import defaultdict, deque
@@ -90,9 +94,13 @@ def run(prep, variant="v1", lockout_vs_delay=10, reserve=5, keep_ticks=False):
     a_tick, d_m, a_age = prep["tick"], prep["meters"], prep["age"]
     s_inter = prep["interactive"]
     d_avoid = {"window": defaultdict(float), "week": defaultdict(float)}   # $ removed, per meter segment
-    d_hist = {"window": deque(), "week": deque()}                          # (tick, seg, cf pct) of the last 30 min
-    dq_usd = deque()                                                       # (tick, sid, usd) of the last 30 min
+    d_hist = {"window": deque(), "week": deque()}                          # (tick, seg, cf pct) over the look-back
+    # the forecast's look-back per meter: 30 min for a window, WEEK_RECENT_H for the week (v1.1)
+    d_back_s = {"window": aq_config.RECENT_MIN * 60, "week": forecast.WEEK_RECENT_H * 3600}
+    dq_usd = deque()                                                       # (tick, sid, usd, agent) of the last 30 min
     d_usd30 = defaultdict(float)
+    d_sub30 = defaultdict(float)                                           # the part of it by subagents (v1.1)
+    d_seg0 = {}                                                            # meter -> (seg, tick, cf pct) of its life's start
     d_last = {}                                                            # sid -> last request ts (not frozen)
     previous, l_freeze, d_open = {}, [], {}                                # d_open: sid -> freeze record
     l_ticks = []
@@ -100,19 +108,26 @@ def run(prep, variant="v1", lockout_vs_delay=10, reserve=5, keep_ticks=False):
     for k, now in enumerate(a_tick):
         now = int(now)
         frozen = {sid for sid, d in previous.items() if d.action == "freeze"}
-        # 1. ingest the minute's requests: a frozen session's are removed (its $ comes off the meters)
+        # 1. ingest the minute's requests: a frozen session's are removed (its $ comes off the meters); under
+        #    v1.1, a session frozen with scope subagents loses only its subagents' requests
         for sid, usd, ts, agent in prep["by_min"].get(now, ()):
             if variant == "subagents" and agent and sid in s_inter:
                 sid += "#agents"     # an interactive session's subagents: their own unit, judged by burn rate
-            if sid in frozen:
+            if sid in frozen and (agent or previous[sid].scope != "subagents"):
                 d_open[sid]["usd_held"] += usd
                 for meter in ("window", "week"):
                     d_avoid[meter][d_m[meter]["seg"][k]] += usd
                 continue
-            dq_usd.append((now, sid, usd)); d_usd30[sid] += usd
+            dq_usd.append((now, sid, usd, agent)); d_usd30[sid] += usd
+            if agent:
+                d_sub30[sid] += usd
             d_last[sid] = ts
         while dq_usd and dq_usd[0][0] <= now - aq_config.RECENT_MIN * 60:
-            _, sid, usd = dq_usd.popleft(); d_usd30[sid] -= usd
+            _, sid, usd, agent = dq_usd.popleft(); d_usd30[sid] -= usd
+            if agent:
+                d_sub30[sid] -= usd
+                if d_sub30[sid] <= 1e-9:
+                    del d_sub30[sid]
             if d_usd30[sid] <= 1e-9:
                 del d_usd30[sid]
         # 2. the meters as the protector would have read them (counterfactual: minus the removed $)
@@ -122,17 +137,24 @@ def run(prep, variant="v1", lockout_vs_delay=10, reserve=5, keep_ticks=False):
             cf = max(0.0, d_m[meter]["pct"][k] - d_avoid[meter][seg] / USD_PER_PCT[meter])
             d_cf[meter] = cf; d_cf_all[meter][k] = cf
             dq = d_hist[meter]; dq.append((now, seg, cf))
-            while dq[0][0] < now - aq_config.RECENT_MIN * 60:
+            if d_seg0.get(meter, (None,))[0] != seg:
+                d_seg0[meter] = (seg, now, cf)     # the first tick of this life of the meter
+            while dq[0][0] < now - d_back_s[meter]:
                 dq.popleft()
             if np.isnan(rst):
                 meters[meter], projections[meter] = None, forecast.Projection(None, 0.0, 0.0)
                 continue
             # the repo's own forecast (forecast.burn_rate, project) fed with the replayed meter: two readings,
-            # the one RECENT_MIN ago (its own reset time: a reset in between is seen as such) and now's
+            # the one a look-back ago (its own reset time: a reset in between is seen as such) and now's
             ts_30, seg_30, cf_30 = dq[0]
             rst_30 = rst if seg_30 == seg else (d_m[meter]["rst"][k - (now - ts_30) // TICK_S] if seg_30 > 0 else None)
             rst_30 = None if rst_30 is None or np.isnan(rst_30) else int(rst_30)
             l_hist = [_reading(meter, ts_30, cf_30, rst_30), _reading(meter, now, cf, int(rst))]
+            if seg_30 != seg:
+                # a reset inside the look-back: also its first reading, so that an early reset with the reset
+                # time unchanged (the week, 2026-11-13) is seen where it happened, as forecast does on the
+                # full history (without it the week re-opens at `now` and reads pct ÷ 10 min for 48 h)
+                l_hist.insert(1, _reading(meter, d_seg0[meter][1], d_seg0[meter][2], int(rst)))
             rate = forecast.burn_rate(l_hist, meter, now)
             meters[meter] = Meter(meter, cf, int(rst), int(now - a_age[k]), bool(a_age[k] > aq_config.READING_MAX_AGE_S))
             projections[meter] = forecast.project(meters[meter], rate, now)
@@ -161,13 +183,14 @@ def run(prep, variant="v1", lockout_vs_delay=10, reserve=5, keep_ticks=False):
                 l_ticks.append((now, d_cf["window"], d_cf["week"], s_win, s_week, who, stale, 0, 0))
             continue
         trace = {}
-        dec = protector.decide(now, meters, projections, sessions, dict(d_usd30), {}, cfg, previous, trace)
+        dec = protector.decide(now, meters, projections, sessions, dict(d_usd30), {}, cfg, previous, trace,
+                               subagent_usd=dict(d_sub30) if variant == "v1.1" else None)
         # 4. bookkeeping of freezes and releases
         for sid, d in dec.items():
             was = sid in frozen
             if d.action == "freeze" and not was:
                 a = trace["meters"][d.cause]
-                d_open[sid] = dict(session_id=sid, interactive=sid in s_inter, cause=d.cause, freeze_ts=now,
+                d_open[sid] = dict(session_id=sid, interactive=sid in s_inter, scope=d.scope, cause=d.cause, freeze_ts=now,
                                    pct_at_freeze=round(a["pct"], 1), reserve=reserve,
                                    late=a["pct"] >= 100 - reserve, resets_at=a["resets_at"],
                                    seg=d_m[d.cause]["seg"][k], lockout_min_forecast=round(a["lockout_min"]),
@@ -216,13 +239,17 @@ def score(prep, df_f, d_cf_all, df_lock, variant, k, r):
         d.update(events=len(df_ev), false_alarm_events=int(df_ev["fa"].sum()))
         d.update(freezes=len(df_f), sessions_frozen=df_f["session_id"].nunique(),
                  interactive_frozen=int(df_f["interactive"].sum()),
+                 # Jean's own thread held: an interactive session frozen whole (the subagents variant's units
+                 # `<sid>#agents` are not in s_inter, so they never count)
+                 main_thread_frozen=int((df_f["interactive"] & (df_f["scope"] != "subagents")).sum()),
                  freeze_hours=round(df_f["hours"].sum(), 1),
                  freeze_hours_with_work=round(df_f.loc[df_f["usd_held"] > 0, "hours"].sum(), 1),
                  usd_held=round(df_f["usd_held"].sum()),
                  false_alarms=int(df_f["false_alarm"].sum()), late=int(df_f["late"].sum()),
                  by_cause=df_f["cause"].value_counts().to_dict())
     else:
-        d.update(events=0, false_alarm_events=0, freezes=0, sessions_frozen=0, interactive_frozen=0, freeze_hours=0, freeze_hours_with_work=0,
+        d.update(events=0, false_alarm_events=0, freezes=0, sessions_frozen=0, interactive_frozen=0, main_thread_frozen=0,
+                 freeze_hours=0, freeze_hours_with_work=0,
                  usd_held=0, false_alarms=0, late=0, by_cause={})
     return d, df_lk
 
@@ -248,16 +275,22 @@ if __name__ == "__main__":
     print("ticks:", len(prep["tick"]), "from", pd.to_datetime(prep["tick"][0], unit="s"), "to", pd.to_datetime(prep["tick"][-1], unit="s"))
     print("calibration, Mac $ per 1 % of a window:", calibrate(prep))
     l_sum = []
-    for variant in ("v1", "burn", "subagents"):
-        for k in (3, 10, 30):
+    l_variants = sys.argv[1:] or ["v1", "burn", "subagents", "v1.1"]
+    for name in l_variants:
+        # v1.1-week30: v1.1 with the week's old 30-min look-back, to tell the two changes apart
+        variant = "v1.1" if name == "v1.1-week30" else name
+        forecast.WEEK_RECENT_H = 0.5 if name == "v1.1-week30" else aq_config.WEEK_RECENT_H
+        for k in ((10,) if name == "v1.1-week30" else (3, 10, 30)):
             for r in (3, 5, 10):
                 keep = (k, r) == (10, 5)
                 df_f, d_cf_all, df_t = run(prep, variant, k, r, keep_ticks=keep)
-                d, df_lk = score(prep, df_f, d_cf_all, df_lock, variant, k, r)
+                d, df_lk = score(prep, df_f, d_cf_all, df_lock, name, k, r)
                 l_sum.append(d)
-                df_f.to_csv(data.OUT / f"replay_{variant}_{k}_{r}.csv", index=False)
-                df_lk.to_csv(data.OUT / f"lockouts_{variant}_{k}_{r}.csv", index=False)
+                # the files are named by the run's name
+                df_f.to_csv(data.OUT / f"replay_{name}_{k}_{r}.csv", index=False)
+                df_lk.to_csv(data.OUT / f"lockouts_{name}_{k}_{r}.csv", index=False)
                 if keep:
-                    df_t.to_csv(data.OUT / f"ticks_{variant}_10_5.csv.gz", index=False)
+                    df_t.to_csv(data.OUT / f"ticks_{name}_10_5.csv.gz", index=False)
                 print(d, flush=True)
-    pd.DataFrame(l_sum).to_csv(data.OUT / "summary.csv", index=False)
+    # one summary per set of variants run, so a partial rerun does not erase the others
+    pd.DataFrame(l_sum).to_csv(data.OUT / ("summary.csv" if not sys.argv[1:] else f"summary_{'_'.join(l_variants)}.csv"), index=False)

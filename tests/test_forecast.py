@@ -68,13 +68,26 @@ class TestS5(unittest.TestCase):
         self.assertEqual(time.strftime("%a %H:%M", time.gmtime(p.full_at)), "Fri 18:20")
         self.assertAlmostEqual(p.lockout_min, 72 * 60 + 40)                    # ≈ 72 h
 
-    def test_week_burn_rate_whole_percents(self):
-        # 87, 88, 89, 90 % every 20 min: 88 % at 14:30 (the step from 14:20), so slope 2/30;
-        # average since the week opened (Mon 19:00, 5,520 min) 90/5520 is smaller; × 1.5 = 0.1 %/min
+    def test_week_burn_rate_slope_over_48_h(self):
+        # the week's slope looks back WEEK_RECENT_H = 48 h, not 30 min (doc/replay.md §6): 40 % on Wed 14:00
+        # (the last value before Wed 15:00), 87, 88, 89, 90 % every 20 min on Friday. Slope (90 − 40) / 2,880 min
+        # = 0.0174 > average since the week opened (Mon 19:00) 90 / 5,520 = 0.0163; × 1.5 = 0.026 %/min.
+        # With 30 min it read 2 / 30 × 1.5 = 0.1 %/min, four times more, off one hour of burst
         week = lambda ts, pct: Reading(ts, 0.0, None, pct, self.reset)
-        l_h = [week(T("2026-11-13 14:00"), 87), week(T("2026-11-13 14:20"), 88),
+        l_h = [week(T("2026-11-11 14:00"), 40), week(T("2026-11-12 10:00"), 70),
+               week(T("2026-11-13 14:00"), 87), week(T("2026-11-13 14:20"), 88),
                week(T("2026-11-13 14:40"), 89), week(T("2026-11-13 15:00"), 90)]
-        self.assertAlmostEqual(burn_rate(l_h, WEEK, self.now), 2 / 30 * 1.5, places=9)
+        self.assertAlmostEqual(burn_rate(l_h, WEEK, self.now), 50 / 2880 * 1.5, places=9)
+        # a window keeps the 30-min slope: 7, 8, 9, 10 % at the same times, opened 12:00: 2 / 30 > 10 / 180
+        wnd = lambda ts, pct: Reading(ts, pct, T("2026-11-13 17:00"), None, None)
+        l_w = [wnd(r.ts, r.week_pct - 80) for r in l_h[2:]]
+        self.assertAlmostEqual(burn_rate(l_w, WINDOW, self.now), 2 / 30 * 1.5, places=9)
+
+    def test_week_flat_for_48_h_reads_its_average(self):
+        # the week unchanged at 60 % since Wed: slope 0, so the average since it opened decides
+        week = lambda ts, pct: Reading(ts, 0.0, None, pct, self.reset)
+        l_h = [week(T("2026-11-11 12:00"), 60), week(T("2026-11-13 15:00"), 60)]
+        self.assertAlmostEqual(burn_rate(l_h, WEEK, self.now), 60 / 5520 * 1.5, places=9)
 
 
 class TestBurnRateEdges(unittest.TestCase):

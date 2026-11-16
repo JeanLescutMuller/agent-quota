@@ -10,7 +10,9 @@ RESERVE_WINDOW_PCT = 5            # % of a window kept for Jean's small urgent w
 RESERVE_WEEK_PCT = 5              # % of the week, idem
 LOCKOUT_VS_DELAY = 10             # an hour of lockout weighs 10 hours of delay to a big job (Jean, 2026-11-16)
 READING_MAX_AGE_S = 600           # a quota reading older than this is stale (maximizer/DESIGN.md §9)
-RECENT_MIN = 30                   # burn rate: look-back of the recent slope, minutes (legacy lab)
+RECENT_MIN = 30                   # burn rate: look-back of the recent slope, minutes (legacy lab); the window's
+WEEK_RECENT_H = 48                # the week's look-back, hours: right 58 % of its "lockout ahead" minutes against
+                                  # 28 % with 30 min (doc/replay.md §6, Max 5x, 2026-10-07 → 11-16)
 RATE_FACTOR = 1.5                 # burn rate: safety factor on max(slope, average) (legacy lab, measured best)
 ACTIVE_MIN = 30                   # "Jean active" = an interactive session used in the last 30 min
 P_NEED_ACTIVE = 0.52              # chance Jean uses > 25 % of a window within 5 h, if active [measured on Pro]

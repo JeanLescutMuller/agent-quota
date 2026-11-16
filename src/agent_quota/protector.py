@@ -9,7 +9,8 @@ Inputs (all plain; objects or dicts are both accepted where a field is read):
     projections     {'window': {full_at, lockout_min, rate}, 'week': {...}}; rate = burn rate in % of that meter per
                     minute (forecast.burn_rate); full_at = None when 100 % is not reached before the reset
     sessions        {session_id: {label, interactive, last_ts, first_ts, cwd, ...}} (store's sessions registry)
-    usd_by_session  {session_id: $ over the last RECENT_MIN minutes} (this machine only)
+    usd_by_session  {session_id: $ over the last RECENT_MIN minutes} (this machine only), its subagents included
+    subagent_usd    {session_id: the part of that $ its subagents spent} (reading.session_usd_split); missing = 0
     overrides       {session_id: {kind: 'go_on'|'resume_now', until: ts, at: ts}}
     config          the config module or a dict; missing names fall back to DEFAULTS (DESIGN §2)
     previous        {session_id: Decision or dict}: the last decisions (who is frozen since when, last release)
@@ -35,12 +36,16 @@ class Decision:
     session_id: str
     action: str                       # allow | freeze
     reason: str                       # one human sentence
+    scope: str = 'all'                # what a freeze holds: all its tool calls, or only its subagents' (an
+                                      # interactive session not labelled big: Jean's own thread always runs, R32)
     cause: str | None = None          # the meter that caused the freeze: window | week
     label: str = ''                   # AGENT_QUOTA_JOB: big, big:<pct>, urgent, maximizer, or ''
     interactive: bool = False
     usd_recent: float = 0.0           # $ over the last 30 min
+    usd_subagents: float = 0.0        # the part of it its subagents spent
     share: float = 0.0                # its $ ÷ all sessions' $ on this machine, same 30 min
-    window_pct_per_hour: float = 0.0  # share × window burn rate × 60: what "big" is judged on
+    removable_share: float = 0.0      # the share a freeze of its scope removes: share (all), its subagents' (subagents)
+    window_pct_per_hour: float = 0.0  # removable_share × window burn rate × 60: what "big" is judged on
     frozen_since: float | None = None
     cause_resets_at: float | None = None
     rate_at_freeze: float = 0.0       # % of the cause meter per minute it burned when frozen (used to judge release)
@@ -128,7 +133,8 @@ def assess_meter(name, meter, proj, now, cfg, p_need):
     return d_out
 
 
-def decide(now, meters, projections, sessions, usd_by_session, overrides, config, previous=None, trace=None):
+def decide(now, meters, projections, sessions, usd_by_session, overrides, config, previous=None, trace=None,
+           subagent_usd=None):
     def cfg(name):
         v = _get(config, name)
         return DEFAULTS[name] if v is None else v
@@ -136,6 +142,7 @@ def decide(now, meters, projections, sessions, usd_by_session, overrides, config
     previous = {sid: (d if isinstance(d, Decision) else Decision.from_dict(d)) for sid, d in (previous or {}).items()}
     overrides = overrides or {}
     usd_by_session = usd_by_session or {}
+    subagent_usd = subagent_usd or {}
 
     # --- who is there, and what each burns -----------------------------------------------------------------------
     total_usd = sum(max(0.0, float(v or 0)) for v in usd_by_session.values())
@@ -152,11 +159,19 @@ def decide(now, meters, projections, sessions, usd_by_session, overrides, config
     for sid in set(sessions) | {sid for sid, d in previous.items() if d.action == 'freeze'}:
         s, prev = sessions.get(sid) or {}, previous.get(sid)
         usd = max(0.0, float(usd_by_session.get(sid, 0) or 0))
+        sub = min(usd, max(0.0, float(subagent_usd.get(sid, 0) or 0)))
+        label = _get(s, 'label') or (prev.label if prev else '')
+        interactive = bool(_get(s, 'interactive', prev.interactive if prev else False))
+        # an interactive session not labelled big is frozen in its subagents only: Jean's own thread runs (R32, v1.1)
+        scope = 'subagents' if interactive and parse_label(label)[0] not in ('big', 'maximizer') else 'all'
+        if prev and prev.action == 'freeze':
+            scope = prev.scope            # a freeze keeps the scope it was decided with
         share = usd / total_usd if total_usd > 0 else 0.0
+        removable = (sub if scope == 'subagents' else usd) / total_usd if total_usd > 0 else 0.0
         d_dec[sid] = Decision(
-            session_id=sid, action='allow', reason='', label=_get(s, 'label') or (prev.label if prev else ''),
-            interactive=bool(_get(s, 'interactive', prev.interactive if prev else False)),
-            usd_recent=round(usd, 4), share=round(share, 4), window_pct_per_hour=round(share * window_rate * 60, 2),
+            session_id=sid, action='allow', scope=scope, reason='', label=label, interactive=interactive,
+            usd_recent=round(usd, 4), usd_subagents=round(sub, 4), share=round(share, 4),
+            removable_share=round(removable, 4), window_pct_per_hour=round(removable * window_rate * 60, 2),
             released_at=prev.released_at if prev else None)
 
     def override_of(sid):
@@ -227,10 +242,9 @@ def decide(now, meters, projections, sessions, usd_by_session, overrides, config
             d_not[sid] = 'labelled urgent: never paused (R40)'
         elif o:
             d_not[sid] = f'Jean said go on: not paused until {_hhmm(_get(o, "until"))} (R46)'
-        elif dec.interactive and kind != 'big':
-            d_not[sid] = 'interactive session: never paused in v1 (R32)'
-            if dec.window_pct_per_hour >= cfg('BIG_JOB_PCT_PER_HOUR'):
-                d_not[sid] += f'; warning: it burns {dec.window_pct_per_hour:.0f} % of a window per hour'
+        elif dec.scope == 'subagents' and dec.window_pct_per_hour < cfg('BIG_JOB_PCT_PER_HOUR'):
+            d_not[sid] = (f'interactive session: its subagents burn {dec.window_pct_per_hour:.1f} % of a window per '
+                          f'hour, under {cfg("BIG_JOB_PCT_PER_HOUR")}; Jean\'s own thread is never paused (R32)')
         elif kind not in ('big', 'maximizer') and dec.window_pct_per_hour < cfg('BIG_JOB_PCT_PER_HOUR'):
             d_not[sid] = (f'small work: {dec.window_pct_per_hour:.1f} % of a window per hour, '
                           f'under {cfg("BIG_JOB_PCT_PER_HOUR")}')
@@ -249,15 +263,19 @@ def decide(now, meters, projections, sessions, usd_by_session, overrides, config
                     d_why[sid].append(a['why'])
             continue
         target, minutes_left = 100 - a['reserve'], a['minutes_left']
-        # the remaining rate, minus what the sessions frozen so far (this round or before) were burning
-        remaining = a['rate'] - sum(a['rate'] * d.share for d in d_dec.values() if d.action == 'freeze')
+        # the remaining rate, minus what the freezes so far (this round or before) take off: for a session frozen
+        # in its subagents only, their share; its main thread keeps burning
+        remaining = a['rate'] - sum(a['rate'] * d.removable_share for d in d_dec.values() if d.action == 'freeze')
 
         def reaches(r):
             return a['pct'] + r * minutes_left >= target
 
         def order(d):
+            # label maximizer first, then big, then the others; among those, scripts before an interactive
+            # session's subagents (Jean's own work goes last, R39); then the highest $ a freeze removes
             kind, _ = parse_label(d.label)
-            return ({'maximizer': 0, 'big': 1}.get(kind, 2), -d.usd_recent)
+            subagents = d.scope == 'subagents'
+            return ({'maximizer': 0, 'big': 1}.get(kind, 2), subagents, -(d.usd_subagents if subagents else d.usd_recent))
 
         for dec in sorted((d for d in d_candidates.values() if d.action != 'freeze'), key=order):
             kind, need = parse_label(dec.label)
@@ -268,9 +286,14 @@ def decide(now, meters, projections, sessions, usd_by_session, overrides, config
                 d_why[dec.session_id].append(f'{a["why"]}, but the pauses before it are enough')
                 continue
             dec.action, dec.cause, dec.frozen_since, dec.cause_resets_at = 'freeze', name, now, a['resets_at']
-            dec.rate_at_freeze = round(a['rate'] * dec.share, 4)
-            remaining -= a['rate'] * dec.share
-            first = {'maximizer': 'labelled maximizer: paused first (R39)', 'big': 'labelled big'}.get(kind, f'{dec.window_pct_per_hour:.0f} % of a window per hour')
+            dec.rate_at_freeze = round(a['rate'] * dec.removable_share, 4)
+            remaining -= a['rate'] * dec.removable_share
+            if dec.scope == 'subagents':
+                first = (f'its subagents only ({dec.window_pct_per_hour:.0f} % of a window per hour); '
+                         f'Jean\'s own thread runs')
+            else:
+                first = {'maximizer': 'labelled maximizer: paused first (R39)', 'big': 'labelled big'}.get(
+                    kind, f'{dec.window_pct_per_hour:.0f} % of a window per hour')
             dec.reason = f'paused: {a["why"]}; {first}; resumes after {_hhmm(a["resets_at"])}'
             dec.numbers = {k: a.get(k) for k in ('pct', 'rate', 'full_at', 'lockout_min', 'harm', 'cost', 'resets_at')}
             d_trace_meters[name]['frozen'].append(dec.session_id)

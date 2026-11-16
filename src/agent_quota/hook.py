@@ -3,7 +3,8 @@
     stdin: Claude Code's hook JSON (session_id, agent_id when in a subagent, tool_name, cwd, …)
     mode off       → exit 0 at once (nothing read, nothing written)
     otherwise      → record the session; recompute decisions.json when older than DECISION_MAX_AGE_S
-    freeze + on    → notify Jean once (agent-notify), keep the Mac awake (caffeinate -w <own pid>), then hold:
+    freeze + on    → (scope `subagents`: only a subagent's call, one with a non-empty `agent_id`, is held; the main
+                     thread's calls always pass, R32) notify Jean once (agent-notify), keep the Mac awake (caffeinate -w <own pid>), then hold:
                      every 5 s check overrides.json and the mode; every HOLD_POLL_S re-read decisions (recomputing
                      them when old: a held hook may be the only one left running) until allow
     always         → exit 0, the call runs. Never raises: an exception goes to hook-errors.log (fails open, §8).
@@ -49,6 +50,14 @@ def _decision(doc, sid):
     return d if isinstance(d, dict) else None
 
 
+def _holds(dec, agent_id):
+    """Whether decision `dec` holds a call made by `agent_id` ('' = the main thread): a freeze of scope `subagents`
+    holds only subagents' calls; any other freeze holds every call."""
+    if not dec or dec.get('action') != 'freeze':
+        return False
+    return bool(agent_id) or dec.get('scope', 'all') != 'subagents'
+
+
 def run(raw, env):
     try:
         d_input = json.loads(raw)
@@ -66,14 +75,15 @@ def run(raw, env):
     store.record_session(d_input, env, now)
     doc = store.recompute(now)
     dec = _decision(doc, sid)
-    if mode != 'on' or not dec or dec.get('action') != 'freeze' or sid in store.load_overrides(now):
+    agent_id = d_input.get('agent_id') or ''
+    if mode != 'on' or not _holds(dec, agent_id) or sid in store.load_overrides(now):
         return
 
     # --- the freeze: hold this tool call until the decision says allow ------------------------------------------
     poll = float(env.get('AGENT_QUOTA_HOLD_POLL_S') or C.HOLD_POLL_S)                 # re-read decisions.json
     tick = min(poll, float(env.get('AGENT_QUOTA_OVERRIDE_POLL_S') or OVERRIDE_POLL_S))  # re-read overrides, mode
     deadline = now + C.HOOK_TIMEOUT_S - HOLD_MARGIN_S
-    tool, agent_id = d_input.get('tool_name', ''), d_input.get('agent_id', '')
+    tool = d_input.get('tool_name', '')
     _HOLD.update(session=sid, agent_id=agent_id, tool=tool)
     _keep_awake()
     if store.claim_once(sid, dec.get('frozen_since')):   # once per freeze, not per held call
@@ -92,7 +102,7 @@ def run(raw, env):
         if time.time() >= next_read:
             next_read = time.time() + poll
             dec = _decision(store.recompute(time.time()), sid)
-            if not dec or dec.get('action') != 'freeze':
+            if not _holds(dec, agent_id):
                 why = (dec or {}).get('reason') or 'no decision'
                 break
     _HOLD.clear()

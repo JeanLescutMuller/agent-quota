@@ -59,11 +59,11 @@ class Hook(unittest.TestCase):
         p.stdin.close()
         return p
 
-    def write_freeze(self, action='freeze'):
+    def write_freeze(self, action='freeze', scope='all'):
         now = time.time()
         self.home.mkdir(parents=True, exist_ok=True)
         (self.home / 'decisions.json').write_text(json.dumps({'ts': now, 'decisions': {SID: {
-            'session_id': SID, 'action': action, 'reason': 'test freeze', 'cause': 'window',
+            'session_id': SID, 'action': action, 'scope': scope, 'reason': 'test freeze', 'cause': 'window',
             'frozen_since': now, 'cause_resets_at': now + 3600}}}))
 
     def wait_held(self, p):
@@ -142,6 +142,29 @@ class Hook(unittest.TestCase):
         p = self.start_hook(self.payload())
         self.wait_held(p)
         self.cli('mode', 'observe')
+        self.assertEqual(rc(p), 0)
+
+    def test_scope_subagents_holds_only_subagents_calls(self):
+        # v1.1: an interactive session frozen in its subagents only: Jean's main thread (no agent_id, or an empty
+        # one) always passes at once; a subagent's call (agent_id set) is held until the decision allows it
+        self.cli('mode', 'on')
+        self.write_freeze(scope='subagents')
+        for main in ({'session_id': SID, 'tool_name': 'Bash'}, {'session_id': SID, 'agent_id': '', 'tool_name': 'Bash'}):
+            t0 = time.time()
+            self.assertEqual(rc(self.start_hook(main)), 0)
+            self.assertLess(time.time() - t0, 5)
+        self.assertFalse((self.home / 'hook.log').exists() and 'hold_start' in (self.home / 'hook.log').read_text())
+        p = self.start_hook(self.payload())          # agent_id 'sub1'
+        self.wait_held(p)
+        self.write_freeze(action='allow')
+        self.assertEqual(rc(p), 0)
+
+    def test_scope_all_holds_the_main_thread(self):
+        self.cli('mode', 'on')
+        self.write_freeze()
+        p = self.start_hook({'session_id': SID, 'tool_name': 'Bash'})
+        self.wait_held(p)
+        self.write_freeze(action='allow')
         self.assertEqual(rc(p), 0)
 
     def test_notified_once_per_freeze(self):

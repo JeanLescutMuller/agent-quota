@@ -147,22 +147,31 @@ def meter_history(since_ts: int, until_ts: int | None = None) -> list[Reading]:
             for ts, written_ts, source, machine, w_pct, w_reset, k_pct, k_reset in l_rows]
 
 
-def session_usd(since_ts: int, until_ts: int) -> dict[str, float]:
-    """$ per session id (Claude Code's own list-price figure, never a bill) of this machine's API requests
-    with since_ts <= ts < until_ts, from `telemetry` in sessions_usages.db. A session's subagents carry its
-    session id, so they are counted in it. Each request once (Claude Code re-sends batches): the same
-    dedup as the view `telemetry_requests`, restricted to the time range first (the view scans the whole
-    table: 0.95 s against 0.004 s, measured 2026-11-16). Returns {} when the database does not exist."""
+def session_usd_split(since_ts: int, until_ts: int) -> dict[str, tuple[float, float]]:
+    """{session_id: (main_usd, subagent_usd)}: $ (Claude Code's own list-price figure, never a bill) of this
+    machine's API requests with since_ts <= ts < until_ts, from `telemetry` in sessions_usages.db, split by who
+    made them. A session's subagents carry its session id; their requests are told apart by `query_source`
+    `agent:<kind>:<name>` (`agent:builtin:general-purpose`, `agent:builtin:Plan`…; seen on the Mac,
+    2026-11-16); everything else (`repl_main_thread`, `sdk`, `compact`, `agent_summary`…) is the main thread's.
+    Each request once (Claude Code re-sends batches): the same dedup as the view `telemetry_requests`,
+    restricted to the time range first (the view scans the whole table: 0.95 s against 0.004 s, measured
+    2026-11-16). Returns {} when the database does not exist."""
     try:
         db = _connect(paths.tracker_dir() / "sessions_usages.db")
     except FileNotFoundError:
         return {}
     try:
         l_rows = db.execute(
-            "SELECT session_id, SUM(cost_usd) FROM telemetry WHERE rowid IN"
+            "SELECT session_id, SUM(CASE WHEN query_source LIKE 'agent:%' THEN 0 ELSE cost_usd END),"
+            " SUM(CASE WHEN query_source LIKE 'agent:%' THEN cost_usd ELSE 0 END) FROM telemetry WHERE rowid IN"
             " (SELECT MIN(rowid) FROM telemetry WHERE event = 'api_request' AND request_id IS NOT NULL"
             "  AND ts >= ? AND ts < ? GROUP BY request_id)"
             " AND session_id IS NOT NULL AND cost_usd IS NOT NULL GROUP BY session_id", (since_ts, until_ts)).fetchall()
     finally:
         db.close()
-    return {sid: float(usd) for sid, usd in l_rows}
+    return {sid: (float(main or 0), float(sub or 0)) for sid, main, sub in l_rows}
+
+
+def session_usd(since_ts: int, until_ts: int) -> dict[str, float]:
+    """$ per session id, its subagents counted in it: session_usd_split's two parts summed."""
+    return {sid: main + sub for sid, (main, sub) in session_usd_split(since_ts, until_ts).items()}

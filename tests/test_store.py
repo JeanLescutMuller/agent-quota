@@ -16,9 +16,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 from agent_quota import store  # noqa: E402
 
 
-def make_tracker(folder, now, window_steps, window_reset_in_s, week_pct=40, week_reset_in_s=3 * 86400, usd=None):
+def make_tracker(folder, now, window_steps, window_reset_in_s, week_pct=40, week_reset_in_s=3 * 86400, usd=None,
+                 usd_sub=None):
     """A fake tracker folder: quota_latest.json, account_quotas.db, sessions_usages.db (telemetry).
-    window_steps: [(seconds before now, window %)], oldest first; usd: {session_id: $ in the last 10 min}."""
+    window_steps: [(seconds before now, window %)], oldest first; usd: {session_id: $ in the last 10 min};
+    usd_sub: {session_id: $ of its subagents (query_source agent:builtin:general-purpose), same 10 min}."""
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
     w_reset, k_reset = int(now + window_reset_in_s), int(now + week_reset_in_s)
@@ -37,9 +39,14 @@ def make_tracker(folder, now, window_steps, window_reset_in_s, week_pct=40, week
         'five_hour': {'used_percentage': last_pct, 'resets_at': w_reset},
         'seven_day': {'used_percentage': week_pct, 'resets_at': k_reset}}))
     db = sqlite3.connect(folder / 'sessions_usages.db')
-    db.execute('CREATE TABLE telemetry (ts INTEGER, session_id TEXT, event TEXT, request_id TEXT, cost_usd REAL)')
+    db.execute('CREATE TABLE telemetry (ts INTEGER, session_id TEXT, event TEXT, request_id TEXT, query_source TEXT,'
+               ' cost_usd REAL)')
     for i, (sid, dollars) in enumerate((usd or {}).items()):
-        db.execute('INSERT INTO telemetry VALUES (?,?,?,?,?)', (int(now - 600), sid, 'api_request', f'r{i}', dollars))
+        db.execute('INSERT INTO telemetry VALUES (?,?,?,?,?,?)',
+                   (int(now - 600), sid, 'api_request', f'r{i}', 'sdk', dollars))
+    for i, (sid, dollars) in enumerate((usd_sub or {}).items()):
+        db.execute('INSERT INTO telemetry VALUES (?,?,?,?,?,?)',
+                   (int(now - 500), sid, 'api_request', f's{i}', 'agent:builtin:general-purpose', dollars))
     db.commit()
     db.close()
 
@@ -142,6 +149,21 @@ class Recompute(TempHome):
         store.set_mode('on')
         store.recompute(self.now + 61)
         self.assertIn('⏸ 1 paused', (self.home / 'statusline.txt').read_text())
+
+    def test_interactive_session_frozen_in_its_subagents(self):
+        # v1.1 end to end: Jean's session ($2 by its main thread, $8 by its subagents) next to the script ($10)
+        tracker = Path(self.tmp.name, 'tracker2')
+        os.environ['AGENT_QUOTA_TRACKER'] = str(tracker)
+        make_tracker(tracker, self.now, [(3600 - 300 * i, 32 + 5 * i) for i in range(12)] + [(30, 92)], 3600,
+                     usd={'job': 10.0, 'jean': 2.0}, usd_sub={'jean': 8.0})
+        store.record_session({'session_id': 'jean', 'cwd': '/j'}, {'CLAUDE_CODE_ENTRYPOINT': 'cli'}, self.now - 20)
+        doc = store.recompute(self.now)
+        d_j, d_job = doc['decisions']['jean'], doc['decisions']['job']
+        self.assertEqual((d_job['action'], d_job['scope']), ('freeze', 'all'))
+        self.assertEqual((d_j['action'], d_j['scope'], d_j['usd_subagents']), ('freeze', 'subagents', 8.0))
+        line = json.loads((self.home / 'decisions.jsonl').read_text().splitlines()[-1])
+        self.assertEqual(line['trace']['meters']['window']['frozen'], ['job', 'jean'])   # the script first (R39)
+        self.assertEqual(line['subagent_usd'], {'jean': 8.0})
 
     def test_fresh_decisions_are_reused(self):
         doc = store.recompute(self.now)

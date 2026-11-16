@@ -30,10 +30,12 @@ def session(label='', interactive=False, idle_min=1):
     return {'label': label, 'interactive': interactive, 'last_ts': NOW - idle_min * MIN, 'first_ts': NOW - 3600}
 
 
-def run(meters_proj, d_sessions, usd, overrides=None, previous=None, now=NOW):
+def run(meters_proj, d_sessions, usd, overrides=None, previous=None, now=NOW, sub=None):
+    """sub: {session_id: the part of its $ its subagents spent}."""
     meters, projections = meters_proj
     trace = {}
-    d = protector.decide(now, meters, projections, d_sessions, usd, overrides or {}, C, previous=previous, trace=trace)
+    d = protector.decide(now, meters, projections, d_sessions, usd, overrides or {}, C, previous=previous, trace=trace,
+                         subagent_usd=sub)
     return d, trace
 
 
@@ -129,14 +131,43 @@ class Candidates(unittest.TestCase):
         self.assertEqual(d['u'].action, 'allow')
         self.assertIn('urgent', d['u'].reason)
 
-    def test_interactive_burning_fast_is_warned_not_frozen(self):
+    def test_interactive_main_thread_alone_never_frozen(self):
+        # Jean's own thread burns fast, no subagent: nothing a freeze of its subagents would remove (R32)
         d, _ = run(self.w, {'i': session(interactive=True)}, {'i': 10.0})
+        self.assertEqual((d['i'].action, d['i'].scope, d['i'].window_pct_per_hour), ('allow', 'subagents', 0.0))
+        self.assertIn("Jean's own thread is never paused", d['i'].reason)
+
+    def test_interactive_burning_via_subagents_frozen_in_its_subagents(self):
+        # v1.1: $10 in 30 min, $8 of it by its subagents: frozen with scope subagents; it takes off the subagents'
+        # share of the rate only (0.8 × 1.5 = 1.2 %/min), the main thread's 0.3 %/min stays in the meter
+        d, trace = run(self.w, {'i': session(interactive=True)}, {'i': 10.0}, sub={'i': 8.0})
+        self.assertEqual((d['i'].action, d['i'].scope), ('freeze', 'subagents'))
+        self.assertAlmostEqual(d['i'].rate_at_freeze, 1.2)
+        self.assertAlmostEqual(trace['meters']['window']['remaining_rate'], 0.3)
+        self.assertIn('subagents only', d['i'].reason)
+        self.assertEqual(protector.Decision.from_dict(d['i'].to_dict()).scope, 'subagents')
+
+    def test_scripts_frozen_before_interactive_subagents(self):
+        # R39: Jean's own work goes last, even when its subagents burn more than the script
+        d_s = {'script': session(), 'jean': session(interactive=True)}
+        d, trace = run(self.w, d_s, {'script': 3.0, 'jean': 10.0}, sub={'jean': 7.0})
+        self.assertEqual(trace['meters']['window']['frozen'], ['script', 'jean'])
+        self.assertEqual((d['script'].scope, d['jean'].scope), ('all', 'subagents'))
+
+    def test_interactive_urgent_never_frozen_even_via_subagents(self):
+        d, _ = run(self.w, {'i': session(label='urgent', interactive=True)}, {'i': 10.0}, sub={'i': 9.0})
         self.assertEqual(d['i'].action, 'allow')
-        self.assertIn('warning', d['i'].reason)
+        self.assertIn('urgent', d['i'].reason)
+
+    def test_interactive_small_subagents_not_a_candidate(self):
+        # subagents' share 0.05 × 1.5 × 60 = 4.5 % of a window per hour < 10
+        d, _ = run(self.w, {'i': session(interactive=True), 'job': session()}, {'i': 10.0, 'job': 10.0}, sub={'i': 1.0})
+        self.assertEqual(d['i'].action, 'allow')
+        self.assertIn('its subagents burn 4.5 %', d['i'].reason)
 
     def test_interactive_labelled_big_can_be_frozen(self):
         d, _ = run(self.w, {'i': session(label='big', interactive=True)}, {'i': 10.0})
-        self.assertEqual(d['i'].action, 'freeze')
+        self.assertEqual((d['i'].action, d['i'].scope), ('freeze', 'all'))   # Jean labelled it: the whole session
 
     def test_small_work_not_a_candidate(self):
         # share 0.05 × 1.5 %/min × 60 = 4.5 % of a window per hour < 10

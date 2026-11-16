@@ -64,7 +64,9 @@ def print_status(doc, all_sessions=False):
             continue
         l_rows.append([sid[:8], d.get('label') or '—', 'yes' if d.get('interactive') else 'no',
                        f'{d.get("usd_recent") or 0:.2f}', _num(d.get('window_pct_per_hour'), '{:.1f}'),
-                       _hhmm(s.get('last_ts'), now), d.get('action'), (s.get('cwd') or '')[-30:], d.get('reason', '')])
+                       _hhmm(s.get('last_ts'), now),
+                       'freeze subagents' if d.get('action') == 'freeze' and d.get('scope') == 'subagents' else d.get('action'),
+                       (s.get('cwd') or '')[-30:], d.get('reason', '')])
     if l_rows:
         print(_table(['session', 'label', 'inter.', '$ 30 min', '% win/h', 'last call', 'decision', 'folder', 'why'], l_rows))
     else:

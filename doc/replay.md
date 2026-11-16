@@ -2,7 +2,7 @@
 
 What the protector v1 ([`../protector/DESIGN.md`](../protector/DESIGN.md) §3–§4) would have done on Jean's Max 5x history (2026-10-07 16:51 → 2026-11-16 17:46 UTC, 40.0 days), minute by minute, with the repo's own `forecast.py`, `state.py` and `protector.py`, unchanged. Written 2026-11-16 by Claude. Words: [`../AGENTS.md`](../AGENTS.md) § Vocabulary.
 
-**Headline: 8 lockouts happened (43.4 h in all, one of them the week: 28.6 h). v1 as designed would have frozen nothing and avoided none, because 98 % of the $ comes from interactive sessions, which v1 never freezes. Freezing the subagents of an interactive session (never Jean's own main thread) would have avoided 7 of 8, for 76 freeze-hours and $119 of delayed work over 40 days. LOCKOUT_VS_DELAY changes nothing between 3 and 30.**
+**Headline: 8 lockouts happened (43.4 h in all, one of them the week: 28.6 h). v1 as designed would have frozen nothing and avoided none, because 98 % of the $ comes from interactive sessions, which v1 never freezes. Freezing the subagents of an interactive session (never Jean's own main thread) would have avoided 7 of 8, for 76 freeze-hours and $119 of delayed work over 40 days. LOCKOUT_VS_DELAY changes nothing between 3 and 30.** Since then built as v1.1 (§9): the same 7 of 8, Jean's main thread never frozen.
 
 ## Words used here (new ones)
 
@@ -159,9 +159,44 @@ When the freeze came, per lockout (subagents variant):
 - **Ticks.** One decision per minute; the real hook decides only on tool calls (and its held calls' polls).
 - **Readings.** Whole percents; a statusline row timed by its write time; the week's early reset of 2026-11-13 handled as a reset.
 
+## 9. v1.1: the rule as built (2026-11-16)
+
+v1.1 ([`../protector/DESIGN.md`](../protector/DESIGN.md) §4, "As built" 9–10) makes two changes, replayed here with the repo's own `decide()` and `burn_rate()` (`replay.py v1.1 v1.1-week30`):
+
+| Change | What |
+|---|---|
+| subagents | an interactive session not labelled `urgent` (or `big`) is a candidate; its freeze holds only its subagents' tool calls; it is judged by its subagents' $ only (`query_source` `agent:*` in the tracker's `telemetry`) and frozen after every script |
+| week rate | the week's slope looks back 48 h (`WEEK_RECENT_H`), not 30 min; still max with its average since it opened, × 1.5 |
+
+| At LOCKOUT_VS_DELAY 10 | Reserve 3 % | Reserve **5 %** | Reserve 10 % |
+|---|---|---|---|
+| Lockouts avoided (of 8) | 7 | **7** | 7 |
+| Lockout minutes left (2,601 in the history) | 52 | 52 | 52 |
+| Freeze-hours (sum) | 71 | **76** | 83 |
+| Work delayed ($ the frozen subagents would have spent while held; B = $194) | 103 | **119** (0.6 B) | 173 |
+| Jean's own main thread frozen | 0 | **0** | 0 |
+| False-alarm events (meter never reached 100 %) | 1 | 1 (Tue 20 Oct, peak 95 %) | 1 |
+| Late freezes (decided inside the reserve) | 1 | 1 (the week, at 95.7 %) | 1 |
+
+- **Identical, run for run, to the "subagents" variant of §4–§5**: the decision in the code makes the same freezes at the same minutes. All 11 freezes (reserve 5 %) hold an interactive session's subagents; the missed lockout (Tue 13 Oct 18:47) still had no subagent running. LOCKOUT_VS_DELAY 3, 10, 30: the same freezes again.
+- **The week's 48 h slope changes no freeze** (`v1.1-week30`, the same rule with the old 30 min: the same numbers): a freeze needs the reserve about to be touched, and the week reaches it only at 95.7 % either way.
+
+What the 48 h slope did to "lockout ahead" on the week (the replayed meter, minutes with a fresh reading):
+
+| Week burn rate | Flagged | Precision (flagged minutes in the week that reached 100 %) | First flag of the week that locked out | Who acts: protector / maximizer / nobody (all minutes) |
+|---|---|---|---|---|
+| v1's rule: max(30-min slope, average) × 1.5 (`v1.1-week30`) | 56.9 % | 28 % | Tue 20 Oct 11:02 | 51.9 / 6.6 / 41.5 % |
+| **v1.1: max(48 h slope, average) × 1.5** | **51.2 %** | **30 %** | Tue 20 Oct 17:59 | 48.6 / 6.6 / 44.8 % |
+
+- **A small gain, not the 58 % of §6**: there, the 48 h slope was taken alone and × 1.0. Kept as max with the average and × 1.5, the average × 1.5 decides most minutes: Jean front-loads the week, so its average projects past 100 %. On the history (no protector), the same rule × 1.0 flags 39 % (precision 36 %), the 48 h slope alone × 1.0 36 % (40 %); counted here as the replay feeds `burn_rate`, which differs from §6's count at a week's start.
+- The replay now also passes `burn_rate` the first reading after a reset inside the look-back: before, the week's early reset of 2026-11-13 (reset time unchanged) read as re-opened at every tick, 48 h of pct ÷ 10 min.
+
 ## Rerun
 
 ```sh
 cd /Users/jeanlescut/dev/agent-quota/lab/replay
 python3 data.py > out/data.log 2>&1 && python3 lockouts.py > out/lockouts.log 2>&1 && python3 replay.py > out/replay.log 2>&1 && python3 analyze.py > out/analyze.log 2>&1
+python3 replay.py v1.1 v1.1-week30 > out/replay_v1_1.log 2>&1   # §9 only: out/summary_v1.1_v1.1-week30.csv
 ```
+
+§2–§8 were measured before v1.1, with the week's 30-min slope; a full rerun now replays every variant with the 48 h slope (freezes unchanged for v1.1; §6's minutes would move as in §9).

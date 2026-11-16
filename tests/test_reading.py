@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.tracker import FakeTracker  # noqa: E402  (also puts src/ on the path)
 
 from agent_quota import paths, reading, state  # noqa: E402
-from agent_quota.reading import WEEK, WINDOW, meter_history, read_meters, session_usd  # noqa: E402
+from agent_quota.reading import WEEK, WINDOW, meter_history, read_meters, session_usd, session_usd_split  # noqa: E402
 
 
 def T(s: str) -> int:
@@ -142,6 +142,16 @@ class TestSessionUsd(unittest.TestCase):
             tr.request(NOW - 3600, "a", 9.0)                                   # before the range
             tr.request(NOW, "a", 9.0)                                          # until_ts is excluded
             self.assertEqual(session_usd(NOW - 1800, NOW), {"a": 1.5, "b": 2.0})
+
+    def test_split_main_and_subagents(self):
+        with FakeTracker() as tr:
+            tr.request(NOW - 600, "a", 1.0)                                                   # Jean's main thread
+            tr.request(NOW - 500, "a", 2.0, query_source="agent:builtin:general-purpose", copies=2)  # its subagent, once
+            tr.request(NOW - 400, "a", 0.5, query_source="agent:builtin:Plan")
+            tr.request(NOW - 300, "a", 0.25, query_source="agent_summary")                    # not a subagent's
+            tr.request(NOW - 200, "b", 3.0, query_source="sdk")                               # a script
+            self.assertEqual(session_usd_split(NOW - 1800, NOW), {"a": (1.25, 2.5), "b": (3.0, 0.0)})
+            self.assertEqual(session_usd(NOW - 1800, NOW), {"a": 3.75, "b": 3.0})
 
 
 @unittest.skipUnless((Path.home() / "opt/agent-tracker/data/claude/account_quotas.db").exists(),

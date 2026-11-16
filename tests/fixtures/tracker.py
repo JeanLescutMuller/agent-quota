@@ -88,14 +88,15 @@ class FakeTracker:
         db.commit()
         db.close()
 
-    def request(self, ts, session_id, usd, request_id=None, event="api_request", copies=1):
-        """One API request in telemetry; `copies` > 1 re-sends it (same request_id), as Claude Code does."""
+    def request(self, ts, session_id, usd, request_id=None, event="api_request", copies=1, query_source="repl_main_thread"):
+        """One API request in telemetry; `copies` > 1 re-sends it (same request_id), as Claude Code does;
+        a subagent's has query_source `agent:builtin:<name>`."""
         self._n += 1
         rid = request_id or f"req_{self._n}"
         db = sqlite3.connect(self.dir / "sessions_usages.db")
         for c in range(copies):
-            db.execute("INSERT INTO telemetry (ts, dt, event, session_id, request_id, cost_usd, received_ts, raw, row_hash)"
-                       " VALUES (?,?,?,?,?,?,?,?,?)", (ts, _dt(ts), event, session_id, rid, usd, ts + c, "{}",
-                                                      f"t{self._n}_{c}"))
+            db.execute("INSERT INTO telemetry (ts, dt, event, session_id, request_id, query_source, cost_usd, received_ts,"
+                       " raw, row_hash) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                       (ts, _dt(ts), event, session_id, rid, query_source, usd, ts + c, "{}", f"t{self._n}_{c}"))
         db.commit()
         db.close()

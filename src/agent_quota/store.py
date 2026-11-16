@@ -27,7 +27,8 @@ MODES = ('off', 'observe', 'on')
 DEFAULT_MODE = 'observe'
 SESSION_KEEP_S = 24 * 3600     # sessions seen in the last 24 h get a decision (and appear in status)
 MAX_AGENT_IDS = 100            # cap on the agent ids kept per session
-HISTORY_S = 6 * 3600           # quota history read for the burn rate (forecast.burn_rate: "now − 6 h is plenty")
+HISTORY_S = 7 * 86400          # quota history read for the burn rate: the week's 48 h slope (WEEK_RECENT_H) and its
+                               # average since a mid-week reset (forecast.burn_rate; 0.07 s on the real files, 2026-11-16)
 
 
 def _path(*parts):
@@ -275,15 +276,18 @@ def recompute(now=None, force=False):
         try:
             meters, projections, shared = gather(now)
             from . import reading
-            usd = reading.session_usd(int(now) - C.RECENT_MIN * 60, int(now))
+            d_split = reading.session_usd_split(int(now) - C.RECENT_MIN * 60, int(now))
+            usd = {sid: main + sub for sid, (main, sub) in d_split.items()}
+            usd_sub = {sid: sub for sid, (main, sub) in d_split.items() if sub}
             error = getattr(meters, 'error', None)
         except Exception as e:
             # the tracker cannot be read: decide on unknown meters, which keeps every freeze as it was, freezes
             # nothing new, and still applies Jean's overrides; say so (R41)
-            meters, projections, shared, usd = None, {}, None, {}
+            meters, projections, shared, usd, usd_sub = None, {}, None, {}, {}
             error = f'{type(e).__name__}: {e}'
         trace = {}
-        d_dec = protector.decide(now, meters, projections, sessions, usd, overrides, C, previous=previous, trace=trace)
+        d_dec = protector.decide(now, meters, projections, sessions, usd, overrides, C, previous=previous, trace=trace,
+                                 subagent_usd=usd_sub)
         d_meters = {name: _plain(getattr(meters, name, None)) for name in ('window', 'week')}
         d_proj, d_shared = _plain(projections), _plain(shared)
         new = {'ts': now, 'dt': _dt(now), 'mode': mode, 'error': error, 'meters': d_meters,
@@ -294,8 +298,8 @@ def recompute(now=None, force=False):
         # R47: one line per recompute, with everything the decision used and why each candidate was or was not frozen
         append_line(_path('decisions.jsonl'), json.dumps(_plain({
             'ts': now, 'dt': _dt(now), 'mode': mode, 'error': new['error'], 'meters': d_meters, 'projections': d_proj,
-            'shared_state': d_shared, 'usd_by_session': usd, 'trace': trace,
-            'decisions': {sid: {'action': d.action, 'reason': d.reason, 'cause': d.cause, 'label': d.label,
+            'shared_state': d_shared, 'usd_by_session': usd, 'subagent_usd': usd_sub, 'trace': trace,
+            'decisions': {sid: {'action': d.action, 'scope': d.scope, 'reason': d.reason, 'cause': d.cause, 'label': d.label,
                                 'usd_recent': d.usd_recent, 'window_pct_per_hour': d.window_pct_per_hour}
                           for sid, d in d_dec.items()}}), default=str))
         write_statusline(statusline_text(new, mode))

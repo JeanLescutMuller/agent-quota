@@ -1,7 +1,9 @@
 """Burn rate and projection of a meter (protector/DESIGN.md §1, §3). Pure: no file, no clock.
 
 burn rate (% of the meter per minute) = max(recent slope, average since the meter opened) × RATE_FACTOR
-    recent slope : (pct now − pct RECENT_MIN ago) ÷ RECENT_MIN
+    recent slope : (pct now − pct L ago) ÷ L, with L = RECENT_MIN (30 min) for a window, WEEK_RECENT_H (48 h) for
+                   the week (with 30 min the week said "lockout ahead" on 51 % of minutes and was right once:
+                   Jean front-loads the week; doc/replay.md §6)
     average      : pct now ÷ minutes since the window opened (week: since the week opened),
                    the divisor floored at MIN_RATE_DENOMINATOR_MIN
 The legacy maximizer's rule, measured best on Pro (doc/prior_work.md §3). The average keeps an ordinary
@@ -14,7 +16,7 @@ full at 13:00 + 40 ÷ 1.3 = 13:30:46, lockout 16:00 − 13:30:46 = 149 min (2 h 
 from dataclasses import dataclass
 
 from .config import (MIN_RATE_DENOMINATOR_MIN, RATE_FACTOR, RECENT_MIN, RESET_FALL_PCT, RESET_TOLERANCE_S,
-                     WEEK_S, WINDOW_S)
+                     WEEK_RECENT_H, WEEK_S, WINDOW_S)
 from .reading import POLLER, WINDOW, Meter, Reading
 
 
@@ -81,12 +83,13 @@ def burn_rate(l_history: list[Reading], meter_name: str, now: int) -> float:
     if not l_steps:
         return 0.0
     pct_now = l_steps[-1][1]
-    t0 = now - RECENT_MIN * 60
+    recent_min = RECENT_MIN if meter_name == WINDOW else WEEK_RECENT_H * 60
+    t0 = now - recent_min * 60
     floor_div = lambda seconds: max(seconds / 60.0, MIN_RATE_DENOMINATOR_MIN)
-    # 1. recent slope over the last RECENT_MIN
+    # 1. recent slope over the last recent_min
     l_before = [s for s in l_steps if s[0] <= t0]
     if l_before:
-        slope = (pct_now - l_before[-1][1]) / RECENT_MIN   # the value it had RECENT_MIN ago
+        slope = (pct_now - l_before[-1][1]) / recent_min   # the value it had recent_min ago
     elif opened is not None and opened >= t0:
         slope = pct_now / floor_div(now - opened)          # opened inside the look-back, from 0 %
     else:

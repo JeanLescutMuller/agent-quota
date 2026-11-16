@@ -34,10 +34,10 @@ Python 3, standard library only (as the legacy maximizer and the tracker). Packa
 | Module | Gives | Notes |
 |---|---|---|
 | `paths.py` | `home()`, `tracker_dir()` | `$AGENT_QUOTA_HOME`, `$AGENT_QUOTA_TRACKER` (default `~/opt/agent-tracker/data/claude`) override them: every test runs on its own folders |
-| `reading.py` | `read_meters(now) → Meters`; `meter_history(since_ts) → [Reading]`; `session_usd(since_ts, until_ts) → {session_id: usd}` | a `Meter` has `pct`, `resets_at`, `reading_ts`; a passed reset reads 0 % (tracker rule 8); a reading older than `READING_MAX_AGE_S` is **stale** |
-| `forecast.py` | `burn_rate(history, meter_name, now) → % per minute`; `project(meter, rate, now) → Projection(full_at, lockout_min)` | the legacy maximizer's measured rule: max(slope over the last 30 min, average since the window opened) × 1.5 **[verified best on Pro data, legacy lab]**; `full_at` None when 100 % is not reached before the reset |
+| `reading.py` | `read_meters(now) → Meters`; `meter_history(since_ts) → [Reading]`; `session_usd(since_ts, until_ts) → {session_id: usd}`; `session_usd_split(…) → {session_id: (main_usd, subagent_usd)}` (v1.1) | a `Meter` has `pct`, `resets_at`, `reading_ts`; a passed reset reads 0 % (tracker rule 8); a reading older than `READING_MAX_AGE_S` is **stale** |
+| `forecast.py` | `burn_rate(history, meter_name, now) → % per minute`; `project(meter, rate, now) → Projection(full_at, lockout_min)` | the legacy maximizer's measured rule: max(slope over the last 30 min, average since the window opened) × 1.5 **[verified best on Pro data, legacy lab]**; for the week, the slope over the last 48 h (v1.1); `full_at` None when 100 % is not reached before the reset |
 | `state.py` | `meter_state(...)`; `week_spare_pct(...)`; `who_acts(window_state, week_state)` | the shared check (R1): see §3 |
-| `protector.py` | `decide(now, meters, projections, sessions, usd_by_session, overrides, config) → {session_id: Decision}` | see §4; pure: no file access, so it is tested with plain values |
+| `protector.py` | `decide(now, meters, projections, sessions, usd_by_session, overrides, config, subagent_usd) → {session_id: Decision}` | see §4; a Decision carries `scope`: `all`, or `subagents` (only its subagents' calls are held); pure: no file access, so it is tested with plain values |
 | `store.py` | read/write `decisions.json`, append `decisions.jsonl`, sessions registry, overrides, mode; the recompute lock | every whole-file write = temp file + rename |
 | `hook.py` | the PreToolUse hook | never raises: any error → log it, exit 0 (the call runs) |
 | `cli.py` | the commands | |
@@ -50,6 +50,7 @@ Python 3, standard library only (as the legacy maximizer and the tracker). Packa
 | `LOCKOUT_VS_DELAY` | 10 | §4 | Jean, 2026-11-16 |
 | `READING_MAX_AGE_S` | 600 | reading | the maximizer's design §9 |
 | `RECENT_MIN`, `RATE_FACTOR` | 30, 1.5 | forecast | legacy lab, measured best |
+| `WEEK_RECENT_H` | 48 | forecast | the week's slope look-back, in hours (v1.1): with 30 min the week said "lockout ahead" on 57 % of minutes, right 28 % of them; with 48 h, 51 % and 30 % in the closed-loop replay ([`../doc/replay.md`](../doc/replay.md) §6, §9) |
 | `ACTIVE_MIN` | 30 | §4 | legacy lab: "active in the last 30 min" is the strongest signal |
 | `P_NEED_ACTIVE`, `P_NEED_IDLE` | 0.52, 0.13 | §4 | legacy lab: chance Jean uses > 25 % of a window within 5 h, active vs not **[measured on Pro]** |
 | `BIG_JOB_PCT_PER_HOUR` | 10 | §4 | **[assumed]**: a session that alone would use 10 % of a window per hour |
@@ -79,24 +80,28 @@ The window never yields spare quota (R4): quota left in a window is not lost whi
 
 ```text
 candidates = sessions seen in the last 10 min, minus:
-    label urgent, or an override "go on" for this window              (R40, R46)
-    interactive sessions not labelled big                             (R32: never frozen; v1 warns only)
-    sessions below BIG_JOB_PCT_PER_HOUR and not labelled big/maximizer (small work)
+    label urgent, or an override "go on" / "resume now" for this window (R40, R46)
+    sessions below BIG_JOB_PCT_PER_HOUR and not labelled big/maximizer (small work), judged on the burn a freeze removes
+scope (v1.1): an interactive session not labelled big (or maximizer) → scope subagents: a freeze holds only its
+    subagents' tool calls (the hook's agent_id), never Jean's own thread (R32); its burn = its subagents' share of
+    its $ (telemetry query_source agent:*). Every other candidate → scope all
 for each meter with lockout ahead:
     p_need  = P_NEED_ACTIVE if an interactive session was used in the last ACTIVE_MIN else P_NEED_IDLE   (R33)
     harm    = lockout_min × p_need × LOCKOUT_VS_DELAY        # the cost of doing nothing
     cost    = minutes from now to full_at                     # how much work a freeze takes from the jobs:
                                                               # after full_at they would be stuck anyway (R37)
     act now ⇔ harm > cost and pct + rate × 5 min ≥ 100 − reserve   (the reserve is about to be touched)
-    if act: freeze candidates in order (label maximizer first, then big, then the highest $ in the last
-            30 min) until the remaining rate, without them, no longer reaches 100 − reserve before the reset (R39)
+    if act: freeze candidates in order (label maximizer first, then big, then scripts before interactive sessions'
+            subagents (Jean's own work last), then the highest $ a freeze removes in the last 30 min) until the
+            remaining rate, without them, no longer reaches 100 − reserve before the reset (R39)
 release (R43, R44): once the meter that caused a freeze has reset (or no longer has lockout ahead, or the
             week is ≥ 100 − reserve: then wait, R44), release one frozen session every RESUME_STAGGER_MIN,
             label urgent first, then the oldest freeze
 ```
 
 - **R36 (let a job finish with 1 % more) is not met in v1**: nothing tells how much a job still needs. A job labelled `big:<pct>` (e.g. `AGENT_QUOTA_JOB=big:3`) is left to run when `<pct>` fits under `100 − pct`; unknown needs are treated as large. → open point 1.
-- **A session's share of the meter**: its $ over the last 30 min ÷ all sessions' $ on this machine × the meter's slope. This needs no $-per-% conversion. Use outside Claude Code (R34) stays in the meter's slope and is never a candidate.
+- **A session's share of the meter**: its $ over the last 30 min ÷ all sessions' $ on this machine × the meter's slope (scope subagents: its subagents' $ only). This needs no $-per-% conversion. Use outside Claude Code (R34) stays in the meter's slope and is never a candidate.
+- **Why subagents (v1.1)**: on 40 days of Jean's history, 98 % of the $ came from interactive sessions, so v1 froze nothing and avoided 0 of 8 lockouts; freezing their subagents avoided 7 of 8, Jean's main thread never held ([`../doc/replay.md`](../doc/replay.md) §3, §9).
 - **Each machine decides for its own sessions** (R35): the meters are the account's, the $ per session is local (the tracker's `telemetry` is per machine). The VM runs the same hook.
 
 ## 5. Labels, overrides, modes
@@ -141,6 +146,8 @@ Built the same day by three agents, 96 unit tests + an end-to-end test ([`../lab
 | 6 | Jean is told with agent-notify's `notify event WaitingForUser` when a hold starts, `Working` when it ends, once per freeze | R45 |
 | 7 | the hook keeps the Mac awake while it holds (`caffeinate -i -w <pid>`); Esc (SIGTERM) ends the hold quietly, logged "cancelled by Jean (Esc)" | open points 6–7 |
 | 8 | a fifth state, `stale`, when a meter cannot be read; history read over 7 days, ordered by the tracker's `ts`; a fall counts as a reset only from the poller (the week was reset early on 2026-11-13 17:47 UTC with its reset time unchanged) | `../doc/reading.md` |
+| 9 | **v1.1 (2026-11-16)**: an interactive session is a candidate with scope `subagents` (§4); the hook holds a call of a session frozen with that scope only when its input has a non-empty `agent_id`; the recompute reads $ per session split main / subagents (`reading.session_usd_split`); 105 unit tests | the replay: v1 avoided 0 of 8 lockouts, v1.1 7 of 8, Jean's main thread frozen 0 times, 76 freeze-hours, $119 delayed in 40 days ([`../doc/replay.md`](../doc/replay.md) §9) |
+| 10 | **v1.1**: the week's burn rate takes its slope over the last 48 h (`WEEK_RECENT_H`), still max with its average × 1.5; the recompute reads 7 days of quota history (it read 6 h) | "lockout ahead" on the week: 57 → 51 % of minutes; no freeze changes (doc/replay.md §9) |
 
 **Two scenarios where the rule of §4 contradicts [`CONSIDERATIONS.md`](CONSIDERATIONS.md) §3:**
 
@@ -154,7 +161,7 @@ Built the same day by three agents, 96 unit tests + an end-to-end test ([`../lab
 | 1 | How much does a big job still need (R36)? | unknown = large; `big:<pct>` when Jean knows |
 | 2 | Checkpoint (§6 of CONSIDERATIONS) as well as freeze? | freeze only: tested, zero tokens, keeps subagents |
 | 3 | The status line shows `statusline.txt` | needs a change in agent-statusline (another repo) |
-| 4 | Interactive sessions labelled nothing but burning fast | warned, never frozen |
+| 4 | Interactive sessions labelled nothing but burning fast | v1.1: their subagents are frozen; Jean's own thread never is |
 | 5 | The VM: same hook, own telemetry | install there once the Mac has run in `observe` for a while |
 | 6 | Esc in an interactive session cancels a freeze and its call (tested 2026-11-16) | accepted: the next tool call is frozen again; Jean pressing Esc is Jean choosing |
 | 7 | The Mac may sleep during a freeze (untested) | the hook keeps it awake while it holds (`caffeinate -i -w <hook pid>`) |
