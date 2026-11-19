@@ -54,6 +54,10 @@ A missing or broken file never raises from `read_meters`: it returns both meters
 | A stale high from before a reset | Fri 2026-11-13 17:47:13, status line: week 95 % with `ts` 17:33:36, written 3 s after the reset | keyed by its `ts`, it falls before the reset: harmless |
 | `quota_latest.json`'s `source` names differ from the table's | `poller` / `statusline` in the JSON; `claude_api` / `claude_statusline` in `account_quotas` | `Meters.source` keeps whichever was read; the cleaning uses the table's names |
 
+## 4b. Several Claude accounts (2026-11-19)
+
+agent-tracker's rule 19 (`FOR_READERS.md`): `account_quotas.account` is the organization uuid (NULL = before = the main account), the table `accounts` maps names to uuids, another account's file is `quota_latest.<name>.json`. `reading.py` reads **the session's own account**, named by `$CLAUDE_ACCOUNT` (set by my-setup's `claude-account`; unset or `a` = the main account, as before; any other name is a file `quota_latest.<name>.json` and the rows with that account's uuid; a name that is not `[a-z0-9_-]+` counts as `a`). A tracker from before the change answers for the main account only. Without this, a session on account b would read the newest row of any account and be throttled (or not) by a's quota. `forecast` and the protector's state (`state.py`) are unchanged: each hook call reads its own account's history, so the forecast of account b has little history until it is used (`meter_history` returns what exists).
+
 ## 5. Not solved in v1
 
 - `read_meters` returns the freshest single reading: a stale low with a fresh `ts` (the 59 % above) can be the "now" reading for a few seconds, until the next render. The burn rate is not affected (it uses the running maximum).

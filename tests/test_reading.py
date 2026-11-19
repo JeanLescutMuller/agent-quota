@@ -87,6 +87,65 @@ class TestReadMeters(unittest.TestCase):
         self.assertEqual(read_meters(NOW).window.pct, 61)
 
 
+class TestSeveralAccounts(unittest.TestCase):
+    """2026-11-19 (tracker FOR_READERS rule 19): a session reads ITS account's quota, from $CLAUDE_ACCOUNT."""
+    UA, UB = "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"
+
+    def setUp(self):
+        import sqlite3
+        self.tr = FakeTracker(with_dbs=False)
+        self._old = os.environ.get("CLAUDE_ACCOUNT")
+        db = sqlite3.connect(self.tr.dir / "account_quotas.db")
+        db.executescript("""CREATE TABLE account_quotas (ts INTEGER NOT NULL, dt TEXT NOT NULL, source TEXT NOT NULL, five_hour_pct REAL,
+            five_hour_resets_ts INTEGER, seven_day_pct REAL, seven_day_resets_ts INTEGER, observed_by_session TEXT,
+            written_ts INTEGER NOT NULL, raw TEXT NOT NULL, row_hash TEXT NOT NULL UNIQUE, machine TEXT, account TEXT);
+            CREATE TABLE accounts (name TEXT PRIMARY KEY, org_uuid TEXT NOT NULL, config_dir TEXT NOT NULL, is_main INTEGER NOT NULL, seen_ts INTEGER NOT NULL);""")
+        db.executemany("INSERT INTO accounts VALUES (?,?,?,?,?)", [("a", self.UA, "/x", 1, 1), ("b", self.UB, "/y", 0, 1)])
+        rows = [(NOW - 300, 60, None), (NOW - 200, 61, self.UA), (NOW - 100, 9, self.UB)]   # a (before accounts), a, b: b is the newest
+        for i, (ts, wk, acct) in enumerate(rows):
+            db.execute("INSERT INTO account_quotas VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                       (ts, "x", "claude_api", 1.0, W_RESET, wk, K_RESET, None, ts, "{}", f"h{i}", "m", acct))
+        db.commit()
+        db.close()
+
+    def tearDown(self):
+        os.environ.pop("CLAUDE_ACCOUNT", None) if self._old is None else os.environ.__setitem__("CLAUDE_ACCOUNT", self._old)
+        self.tr.close()
+
+    def test_main_account_ignores_the_newer_reading_of_another(self):
+        os.environ.pop("CLAUDE_ACCOUNT", None)
+        self.assertEqual(read_meters(NOW).week.pct, 61)
+        os.environ["CLAUDE_ACCOUNT"] = "a"
+        self.assertEqual(read_meters(NOW).week.pct, 61)
+        self.assertEqual([r.week_pct for r in meter_history(NOW - 1000)], [60, 61])
+
+    def test_account_b_reads_its_own_rows_and_file(self):
+        os.environ["CLAUDE_ACCOUNT"] = "b"
+        self.assertEqual(read_meters(NOW).week.pct, 9)
+        self.assertEqual([r.week_pct for r in meter_history(NOW - 1000)], [9])
+        # its file wins when fresher; the main file (quota_latest.json) is never b's
+        (self.tr.dir / "quota_latest.json").write_text('{"ts": %d, "five_hour": null, "seven_day": {"used_percentage": 99, "resets_at": %d}}' % (NOW - 10, K_RESET))
+        self.assertEqual(read_meters(NOW).week.pct, 9)
+        (self.tr.dir / "quota_latest.b.json").write_text('{"ts": %d, "five_hour": null, "seven_day": {"used_percentage": 12, "resets_at": %d}}' % (NOW - 5, K_RESET))
+        self.assertEqual(read_meters(NOW).week.pct, 12)
+
+    def test_unknown_account_has_no_reading_and_a_bad_name_is_the_main_account(self):
+        os.environ["CLAUDE_ACCOUNT"] = "zz"
+        self.assertTrue(read_meters(NOW).stale)
+        os.environ["CLAUDE_ACCOUNT"] = "../x"
+        self.assertEqual(read_meters(NOW).week.pct, 61)
+
+    def test_a_tracker_from_before_the_change_answers_for_the_main_account_only(self):
+        import sqlite3
+        db = sqlite3.connect(self.tr.dir / "account_quotas.db")
+        db.executescript("DROP TABLE accounts; ALTER TABLE account_quotas DROP COLUMN account;")
+        db.close()
+        os.environ["CLAUDE_ACCOUNT"] = "a"
+        self.assertEqual(read_meters(NOW).week.pct, 9)       # the newest row: one account, as before
+        os.environ["CLAUDE_ACCOUNT"] = "b"
+        self.assertTrue(read_meters(NOW).stale)
+
+
 class TestNothingToRead(unittest.TestCase):
     def test_unknown_and_creates_nothing(self):
         with FakeTracker(with_dbs=False) as tr:

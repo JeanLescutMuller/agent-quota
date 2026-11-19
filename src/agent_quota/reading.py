@@ -4,11 +4,15 @@ The tracker's rules (agent-tracker/FOR_READERS.md) followed here:
   - never write: sqlite is opened with `PRAGMA query_only = ON` (never a `mode=ro` URI: macOS refuses it
     intermittently) and `mode=rw`, which never creates a missing file; a busy timeout of 10 s;
   - rule 8: a window (or week) whose reset time has passed reads 0 %, its reset unknown (None);
-  - a quota % is account-wide: nothing here gives a session a %.
+  - a quota % is account-wide: nothing here gives a session a %;
+  - several Claude accounts (2026-11-19, tracker FOR_READERS rule 19): a session reads ITS account's quota, from its
+    $CLAUDE_ACCOUNT (unset or `a`: the main account, as before): quota_latest.<name>.json and the rows of that account.
 Every function takes the time it reasons about (`now`, `since_ts`): never the wall clock, so a test or a
 replay of the past gets the same answer.
 """
 import json
+import os
+import re
 import sqlite3
 from dataclasses import dataclass
 from urllib.parse import quote
@@ -71,6 +75,23 @@ def _connect(path) -> sqlite3.Connection:
     return db
 
 
+def account_name() -> str:
+    """The session's Claude account: $CLAUDE_ACCOUNT (set by my-setup's claude-account), else the main one, `a`."""
+    name = os.environ.get("CLAUDE_ACCOUNT") or "a"
+    return name if re.fullmatch(r"[a-z0-9_-]+", name) else "a"
+
+
+def _account_where(db) -> tuple[str, tuple] | None:
+    """The SQL (starting with ' AND') that limits account_quotas to the session's account, and its parameters;
+    None when this database cannot answer for that account (another account, a tracker from before 2026-11-19)."""
+    name = account_name()
+    if "account" not in {r[1] for r in db.execute("PRAGMA table_info(account_quotas)")}:
+        return ("", ()) if name == "a" else None
+    if name == "a":   # readings with no account (before 2026-11-19) or the main account's
+        return " AND (account IS NULL OR account IS (SELECT org_uuid FROM accounts WHERE is_main = 1))", ()
+    return " AND account = (SELECT org_uuid FROM accounts WHERE name = ?)", (name,)
+
+
 def _apply_reset_rule(pct, resets_at, ts):
     """Rule 8: a meter whose reset is at or before `ts` reads 0 %, reset unknown. None pct stays None."""
     if pct is not None and resets_at is not None and resets_at <= ts:
@@ -87,7 +108,8 @@ def read_meters(now: int) -> Meters:
     l_errors = []
     # 1. quota_latest.json: what the status line shows
     try:
-        d_q = json.loads((paths.tracker_dir() / "quota_latest.json").read_text())
+        name = account_name()
+        d_q = json.loads((paths.tracker_dir() / ("quota_latest.json" if name == "a" else f"quota_latest.{name}.json")).read_text())
         fh, sd = d_q.get("five_hour"), d_q.get("seven_day")
         # a null meter in the file = no window open: 0 %, reset unknown (FOR_READERS rule 16)
         win = (fh.get("used_percentage"), fh.get("resets_at")) if fh else (0.0, None)
@@ -101,10 +123,11 @@ def read_meters(now: int) -> Meters:
     try:
         db = _connect(paths.tracker_dir() / "account_quotas.db")
         try:
-            row = db.execute(
+            where = _account_where(db)
+            row = None if where is None else db.execute(
                 "SELECT ts, source, machine, five_hour_pct, five_hour_resets_ts, seven_day_pct, seven_day_resets_ts"
                 " FROM account_quotas WHERE (five_hour_pct IS NOT NULL OR seven_day_pct IS NOT NULL) AND ts <= ?"
-                " ORDER BY ts DESC, rowid DESC LIMIT 1", (now,)).fetchone()
+                + where[0] + " ORDER BY ts DESC, rowid DESC LIMIT 1", (now, *where[1])).fetchone()
         finally:
             db.close()
         if row:
@@ -139,7 +162,8 @@ def meter_history(since_ts: int, until_ts: int | None = None) -> list[Reading]:
         params = (since_ts,)
         if until_ts is not None:
             sql, params = sql + " AND ts <= ? AND written_ts <= ?", (since_ts, until_ts, until_ts)
-        l_rows = db.execute(sql + " ORDER BY ts, rowid", params).fetchall()
+        where = _account_where(db)
+        l_rows = [] if where is None else db.execute(sql + where[0] + " ORDER BY ts, rowid", (*params, *where[1])).fetchall()
     finally:
         db.close()
     return [Reading(int(ts), *_apply_reset_rule(w_pct, w_reset, ts), *_apply_reset_rule(k_pct, k_reset, ts),
