@@ -88,7 +88,8 @@ def _account_where(db) -> tuple[str, tuple] | None:
     if "account" not in {r[1] for r in db.execute("PRAGMA table_info(account_quotas)")}:
         return ("", ()) if name == "a" else None
     if name == "a":   # readings with no account (before 2026-11-19) or the main account's
-        return " AND (account IS NULL OR account IS (SELECT org_uuid FROM accounts WHERE is_main = 1))", ()
+        return (" AND (account IS NULL OR NOT EXISTS (SELECT 1 FROM accounts WHERE is_main = 1)"
+                " OR account = (SELECT org_uuid FROM accounts WHERE is_main = 1))"), ()
     return " AND account = (SELECT org_uuid FROM accounts WHERE name = ?)", (name,)
 
 
