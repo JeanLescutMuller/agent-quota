@@ -35,3 +35,7 @@ agent-quota resume-now <id>
 | maximizer | design agreed in part (moved from `tasks`, 2026-11-11) | [`maximizer/DESIGN.md`](maximizer/DESIGN.md) |
 | both | how they stay apart | [`CONSIDERATIONS.md`](CONSIDERATIONS.md), [`REQUIREMENTS.md`](REQUIREMENTS.md) |
 | what to build on | Jean's repos and tools online, 2026-11-11 | [`doc/prior_work.md`](doc/prior_work.md) |
+
+## See also: several Claude accounts
+
+Several Claude accounts on one machine: the overview (why, designs, how to use it, every piece and where it lives) is `/Users/jeanlescut/dev/my-setup/doc/claude_accounts.html`.
