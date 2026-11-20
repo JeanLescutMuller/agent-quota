@@ -9,7 +9,7 @@ Claude Code 2.1.325, Haiku, on the MacBook. Hook: `hold_release.sh` (a copy of `
 | Script | Run (summary) | Sessions |
 |---|---|---|
 | `run_more.sh` | `runs/20261116T174203Z_more/summary.txt` | T1–T3, `claude -p`, 3 at once, $0.03 in all |
-| `run_tui.sh` (under `agent-tracker/tests/tmux_guard.sh`: every tmux call on a throwaway socket) | `runs/20261116T174511Z_tui/summary.txt`, `screens/` | U1–U3, interactive `claude` in tmux, 3 at once |
+| `run_tui.sh` (under `agent-tracker/tests/run_with_test_tmux.sh`: every tmux call on a throwaway socket) | `runs/20261116T174511Z_tui/summary.txt`, `screens/` | U1–U3, interactive `claude` in tmux, 3 at once |
 
 | Test | Result | Evidence (Unix seconds) |
 |---|---|---|

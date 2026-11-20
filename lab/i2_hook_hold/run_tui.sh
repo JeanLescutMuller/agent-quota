@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The I2 interactive test (2026-11-16): a real `claude` TUI in tmux, its Bash call held 120 s by hold_release.sh.
-# Usage: bash /Users/jeanlescut/dev/agent-tracker/tests/tmux_guard.sh bash run_tui.sh <out_dir>
-#   Refuses to run outside tmux_guard.sh: every tmux call names the guard's throwaway socket (-S), never Jean's server.
+# Usage: bash /Users/jeanlescut/dev/agent-tracker/tests/run_with_test_tmux.sh bash run_tui.sh <out_dir>
+#   Refuses to run outside run_with_test_tmux.sh: every tmux call names the guard's throwaway socket (-S), never Jean's server.
 # Reads   hold_release.sh (beside this file)
 # Writes  <out_dir>/<test>/{settings.json, launch.sh, hook.log, marker_main, events, screens/<ts>_<label>.txt},
 #         <out_dir>/summary.txt
@@ -10,10 +10,10 @@
 #   U2_submit  during the hold, a message is typed and sent with Enter      → does it cancel the hold (#104363)?
 #   U3_escape  during the hold, Esc is pressed                              → does Esc cancel the hold and the call?
 set -u
-[[ -n ${TMUX_GUARD_SOCKET:-} ]] || { echo "run under tmux_guard.sh" >&2; exit 2; }
+[[ -n ${TEST_TMUX_SOCKET:-} ]] || { echo "run under run_with_test_tmux.sh" >&2; exit 2; }
 out=$1
 here=$(cd "$(dirname "$0")" && pwd)
-sock=$TMUX_GUARD_SOCKET
+sock=$TEST_TMUX_SOCKET
 t() { tmux -S "$sock" "$@"; }
 mkdir -p "$out"
 hold_s=120
