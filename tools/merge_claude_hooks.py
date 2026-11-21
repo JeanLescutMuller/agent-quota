@@ -17,7 +17,7 @@ MARK = "opt/agent-quota/bin/agent-quota"
 COMMAND = '[ ! -f "$HOME/opt/agent-quota/bin/agent-quota" ] || python3 -I "$HOME/opt/agent-quota/bin/agent-quota" hook'
 TIMEOUT_S = 21600
 
-f = Path(os.environ.get("CLAUDE_SETTINGS") or Path.home() / ".claude" / "settings.json")
+f = Path(os.environ.get("CLAUDE_SETTINGS") or Path.home() / ".claude" / "settings.json").resolve()  # a link (account b's settings.json -> ../settings.json): write its target, never replace the link (2026-11-21)
 mode = sys.argv[1]
 d = {}
 if f.exists():
