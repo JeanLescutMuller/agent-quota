@@ -71,12 +71,12 @@ class FakeTracker:
             os.environ["AGENT_QUOTA_TRACKER"] = self._old_env
         self._tmp.cleanup()
 
-    def quota_latest(self, ts, w_pct, w_reset, k_pct, k_reset, source="statusline", machine="mac"):
-        """quota_latest.json; w_pct None writes a null five_hour (k_pct None: a null seven_day)."""
+    def quota_latest(self, ts, w_pct, w_reset, k_pct, k_reset, source="statusline", machine="mac", name="a"):
+        """quota_latest.<name>.json; w_pct None writes a null five_hour (k_pct None: a null seven_day)."""
         d = {"ts": ts, "dt": _dt(ts), "source": source, "machine": machine,
              "five_hour": None if w_pct is None else {"used_percentage": w_pct, "resets_at": w_reset},
              "seven_day": None if k_pct is None else {"used_percentage": k_pct, "resets_at": k_reset}}
-        (self.dir / "quota_latest.json").write_text(json.dumps(d))
+        (self.dir / f"quota_latest.{name}.json").write_text(json.dumps(d))
 
     def quota_row(self, ts, w_pct, w_reset, k_pct, k_reset, written_ts=None, source="claude_api", machine="mac"):
         """One row of account_quotas."""

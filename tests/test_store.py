@@ -20,7 +20,7 @@ from agent_quota import store  # noqa: E402
 
 def make_tracker(folder, now, window_steps, window_reset_in_s, week_pct=40, week_reset_in_s=3 * 86400, usd=None,
                  usd_sub=None):
-    """A fake tracker folder: quota_latest.json, account_quotas.db, sessions_usages.db (telemetry).
+    """A fake tracker folder: quota_latest.a.json, account_quotas.db, sessions_usages.db (telemetry).
     window_steps: [(seconds before now, window %)], oldest first; usd: {session_id: $ in the last 10 min};
     usd_sub: {session_id: $ of its subagents (query_source agent:builtin:general-purpose), same 10 min}."""
     folder = Path(folder)
@@ -36,7 +36,7 @@ def make_tracker(folder, now, window_steps, window_reset_in_s, week_pct=40, week
     db.commit()
     db.close()
     last_ago, last_pct = window_steps[-1]
-    (folder / 'quota_latest.json').write_text(json.dumps({
+    (folder / 'quota_latest.a.json').write_text(json.dumps({
         'ts': int(now - last_ago), 'source': 'statusline', 'machine': 'test',
         'five_hour': {'used_percentage': last_pct, 'resets_at': w_reset},
         'seven_day': {'used_percentage': week_pct, 'resets_at': k_reset}}))

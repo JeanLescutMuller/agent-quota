@@ -99,8 +99,8 @@ class TestSeveralAccounts(unittest.TestCase):
         db.executescript("""CREATE TABLE account_quotas (ts INTEGER NOT NULL, dt TEXT NOT NULL, source TEXT NOT NULL, five_hour_pct REAL,
             five_hour_resets_ts INTEGER, seven_day_pct REAL, seven_day_resets_ts INTEGER, observed_by_session TEXT,
             written_ts INTEGER NOT NULL, raw TEXT NOT NULL, row_hash TEXT NOT NULL UNIQUE, machine TEXT, account TEXT);
-            CREATE TABLE accounts (name TEXT PRIMARY KEY, org_uuid TEXT NOT NULL, config_dir TEXT NOT NULL, is_main INTEGER NOT NULL, seen_ts INTEGER NOT NULL);""")
-        db.executemany("INSERT INTO accounts VALUES (?,?,?,?,?)", [("a", self.UA, "/x", 1, 1), ("b", self.UB, "/y", 0, 1)])
+            CREATE TABLE accounts (name TEXT PRIMARY KEY, org_uuid TEXT NOT NULL, config_dir TEXT NOT NULL, seen_ts INTEGER NOT NULL);""")
+        db.executemany("INSERT INTO accounts VALUES (?,?,?,?)", [("a", self.UA, "/x", 1), ("b", self.UB, "/y", 1)])
         rows = [(NOW - 300, 60, None), (NOW - 200, 61, self.UA), (NOW - 100, 9, self.UB)]   # a (before accounts), a, b: b is the newest
         for i, (ts, wk, acct) in enumerate(rows):
             db.execute("INSERT INTO account_quotas VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -112,9 +112,7 @@ class TestSeveralAccounts(unittest.TestCase):
         os.environ.pop("CLAUDE_ACCOUNT", None) if self._old is None else os.environ.__setitem__("CLAUDE_ACCOUNT", self._old)
         self.tr.close()
 
-    def test_main_account_ignores_the_newer_reading_of_another(self):
-        os.environ.pop("CLAUDE_ACCOUNT", None)
-        self.assertEqual(read_meters(NOW).week.pct, 61)
+    def test_an_account_ignores_the_newer_reading_of_another(self):
         os.environ["CLAUDE_ACCOUNT"] = "a"
         self.assertEqual(read_meters(NOW).week.pct, 61)
         self.assertEqual([r.week_pct for r in meter_history(NOW - 1000)], [60, 61])
@@ -123,17 +121,28 @@ class TestSeveralAccounts(unittest.TestCase):
         os.environ["CLAUDE_ACCOUNT"] = "b"
         self.assertEqual(read_meters(NOW).week.pct, 9)
         self.assertEqual([r.week_pct for r in meter_history(NOW - 1000)], [9])
-        # its file wins when fresher; the main file (quota_latest.json) is never b's
-        (self.tr.dir / "quota_latest.json").write_text('{"ts": %d, "five_hour": null, "seven_day": {"used_percentage": 99, "resets_at": %d}}' % (NOW - 10, K_RESET))
+        # its file wins when fresher; another account's file is never b's
+        (self.tr.dir / "quota_latest.a.json").write_text('{"ts": %d, "five_hour": null, "seven_day": {"used_percentage": 99, "resets_at": %d}}' % (NOW - 10, K_RESET))
         self.assertEqual(read_meters(NOW).week.pct, 9)
         (self.tr.dir / "quota_latest.b.json").write_text('{"ts": %d, "five_hour": null, "seven_day": {"used_percentage": 12, "resets_at": %d}}' % (NOW - 5, K_RESET))
         self.assertEqual(read_meters(NOW).week.pct, 12)
 
-    def test_unknown_account_has_no_reading_and_a_bad_name_is_the_main_account(self):
+    def test_unknown_account_has_no_reading(self):
         os.environ["CLAUDE_ACCOUNT"] = "zz"
         self.assertTrue(read_meters(NOW).stale)
-        os.environ["CLAUDE_ACCOUNT"] = "../x"
+
+    def test_no_account_set_or_a_bad_name_reads_the_account_with_the_most_room(self):
+        # outside the wrapper: no files at all -> a (one account, as before 2026-11-19)
+        os.environ.pop("CLAUDE_ACCOUNT", None)
         self.assertEqual(read_meters(NOW).week.pct, 61)
+        # a: week 40% used, b: week 12% used -> b has more room (88% vs 60%)
+        self.tr.quota_latest(NOW - 30, 10, W_RESET, 40, K_RESET, name="a")
+        self.tr.quota_latest(NOW - 20, 10, W_RESET, 12, K_RESET, name="b")
+        self.assertEqual(read_meters(NOW).week.pct, 12)
+        os.environ["CLAUDE_ACCOUNT"] = "../x"
+        self.assertEqual(read_meters(NOW).week.pct, 12)
+        os.environ["CLAUDE_ACCOUNT"] = "a"
+        self.assertEqual(read_meters(NOW).week.pct, 40)
 
     def test_a_tracker_from_before_the_change_answers_for_the_main_account_only(self):
         import sqlite3
@@ -152,7 +161,7 @@ class TestNothingToRead(unittest.TestCase):
             m = read_meters(NOW)
             self.assertIsNone(m.window.pct)
             self.assertTrue(m.stale)
-            self.assertIn("quota_latest.json", m.error)
+            self.assertIn("quota_latest.", m.error)
             self.assertEqual(session_usd(NOW - 1800, NOW), {})
             with self.assertRaises(FileNotFoundError):
                 meter_history(NOW - 3600)

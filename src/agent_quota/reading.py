@@ -6,7 +6,8 @@ The tracker's rules (agent-tracker/FOR_READERS.md) followed here:
   - rule 8: a window (or week) whose reset time has passed reads 0 %, its reset unknown (None);
   - a quota % is account-wide: nothing here gives a session a %;
   - several Claude accounts (2026-11-19, tracker FOR_READERS rule 19): a session reads ITS account's quota, from its
-    $CLAUDE_ACCOUNT (unset or `a`: the main account, as before): quota_latest.<name>.json and the rows of that account.
+    $CLAUDE_ACCOUNT (unset, outside my-setup's wrapper: the account with the most room left): quota_latest.<name>.json
+    and the rows of that account.
 Every function takes the time it reasons about (`now`, `since_ts`): never the wall clock, so a test or a
 replay of the past gets the same answer.
 """
@@ -75,21 +76,45 @@ def _connect(path) -> sqlite3.Connection:
     return db
 
 
-def account_name() -> str:
-    """The session's Claude account: $CLAUDE_ACCOUNT (set by my-setup's claude-account), else the main one, `a`."""
-    name = os.environ.get("CLAUDE_ACCOUNT") or "a"
-    return name if re.fullmatch(r"[a-z0-9_-]+", name) else "a"
+def _best_account(now: int | None) -> str:
+    """The account with the most room left among the tracker's quota_latest.<name>.json files: room = 100 - max(5h %, 7d %), rule 8
+    applied at `now` (None: not applied); a tie: the first name; no file: `a` (a machine with one account, as before 2026-11-19)."""
+    l_rooms = []
+    try:
+        for p in sorted(paths.tracker_dir().glob("quota_latest.*.json")):
+            name = p.name[len("quota_latest."):-len(".json")]
+            if not re.fullmatch(r"[a-z0-9_-]+", name):
+                continue
+            try:
+                d = json.loads(p.read_text())
+            except (OSError, ValueError):
+                continue
+            l_pcts = []
+            for k in ("five_hour", "seven_day"):
+                w = d.get(k) or {}
+                resets = w.get("resets_at")
+                l_pcts.append(0 if now is not None and isinstance(resets, (int, float)) and resets <= now else (w.get("used_percentage") or 0))
+            l_rooms.append((max(l_pcts), name))
+    except (OSError, AttributeError, TypeError):
+        pass
+    return min(l_rooms)[1] if l_rooms else "a"
 
 
-def _account_where(db) -> tuple[str, tuple] | None:
+def account_name(now: int | None = None) -> str:
+    """The session's Claude account: $CLAUDE_ACCOUNT (set by my-setup's claude-account); without it (a session started outside
+    the wrapper, or a bad name): the account with the most room left."""
+    name = os.environ.get("CLAUDE_ACCOUNT") or ""
+    return name if re.fullmatch(r"[a-z0-9_-]+", name) else _best_account(now)
+
+
+def _account_where(db, now: int | None = None) -> tuple[str, tuple] | None:
     """The SQL (starting with ' AND') that limits account_quotas to the session's account, and its parameters;
     None when this database cannot answer for that account (another account, a tracker from before 2026-11-19)."""
-    name = account_name()
+    name = account_name(now)
     if "account" not in {r[1] for r in db.execute("PRAGMA table_info(account_quotas)")}:
-        return ("", ()) if name == "a" else None
-    if name == "a":   # readings with no account (before 2026-11-19) or the main account's
-        return (" AND (account IS NULL OR NOT EXISTS (SELECT 1 FROM accounts WHERE is_main = 1)"
-                " OR account = (SELECT org_uuid FROM accounts WHERE is_main = 1))"), ()
+        return ("", ()) if name == "a" else None      # before 2026-11-19 there was one account, named a
+    if name == "a":   # readings with no account (before 2026-11-19, one account) belong to the account named a
+        return " AND (account IS NULL OR account = (SELECT org_uuid FROM accounts WHERE name = 'a'))", ()
     return " AND account = (SELECT org_uuid FROM accounts WHERE name = ?)", (name,)
 
 
@@ -101,16 +126,16 @@ def _apply_reset_rule(pct, resets_at, ts):
 
 
 def read_meters(now: int) -> Meters:
-    """The account's two meters at `now`: the freshest reading not after `now`, from quota_latest.json or
+    """The account's two meters at `now`: the freshest reading not after `now`, from quota_latest.<name>.json or
     the account_quotas table (both written by the tracker), rule 8 applied at `now`.
 
     Never raises for missing or broken files: it returns unknown, stale meters with `error` set."""
     d_cand = {}   # source of the candidate -> (ts, source, machine, window (pct, reset), week (pct, reset))
     l_errors = []
-    # 1. quota_latest.json: what the status line shows
+    # 1. quota_latest.<name>.json: what the status line shows
     try:
-        name = account_name()
-        d_q = json.loads((paths.tracker_dir() / ("quota_latest.json" if name == "a" else f"quota_latest.{name}.json")).read_text())
+        name = account_name(now)
+        d_q = json.loads((paths.tracker_dir() / f"quota_latest.{name}.json").read_text())
         fh, sd = d_q.get("five_hour"), d_q.get("seven_day")
         # a null meter in the file = no window open: 0 %, reset unknown (FOR_READERS rule 16)
         win = (fh.get("used_percentage"), fh.get("resets_at")) if fh else (0.0, None)
@@ -118,13 +143,13 @@ def read_meters(now: int) -> Meters:
         if int(d_q["ts"]) <= now:
             d_cand["json"] = (int(d_q["ts"]), d_q.get("source"), d_q.get("machine"), win, week)
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
-        l_errors.append(f"quota_latest.json: {type(e).__name__}: {e}")
+        l_errors.append(f"quota_latest.<name>.json: {type(e).__name__}: {e}")
     # 2. account_quotas: the same query as the view `latest`, but with raw values and our own `now`
     #    (the view applies rule 8 with sqlite's clock, which a test or a replay must not use)
     try:
         db = _connect(paths.tracker_dir() / "account_quotas.db")
         try:
-            where = _account_where(db)
+            where = _account_where(db, now)
             row = None if where is None else db.execute(
                 "SELECT ts, source, machine, five_hour_pct, five_hour_resets_ts, seven_day_pct, seven_day_resets_ts"
                 " FROM account_quotas WHERE (five_hour_pct IS NOT NULL OR seven_day_pct IS NOT NULL) AND ts <= ?"

@@ -8,7 +8,7 @@ All under `$AGENT_QUOTA_TRACKER` (default `~/opt/agent-tracker/data/claude`; `sr
 
 | File | What agent-quota reads | Function |
 |---|---|---|
-| `quota_latest.json` | the account's freshest reading: `ts`, `source` (`statusline` or `poller`), `machine`, `five_hour` / `seven_day` = `{used_percentage, resets_at}` or `null` | `read_meters(now)` |
+| `quota_latest.<name>.json` | the account's freshest reading (one file per account): `ts`, `source` (`statusline` or `poller`), `machine`, `five_hour` / `seven_day` = `{used_percentage, resets_at}` or `null` | `read_meters(now)` |
 | `account_quotas.db`, table `account_quotas` | every reading, both machines: `ts`, `written_ts`, `source` (`claude_statusline`, `claude_api`), `machine`, `five_hour_pct`, `five_hour_resets_ts`, `seven_day_pct`, `seven_day_resets_ts` | `read_meters(now)` (newest row, a second source), `meter_history(since_ts, until_ts=None)` |
 | `sessions_usages.db`, table `telemetry` | one row per API request event of this machine: `ts`, `event` (`api_request`…), `session_id`, `request_id`, `cost_usd` | `session_usd(since_ts, until_ts)` |
 
@@ -18,11 +18,11 @@ Not read: the view `latest` (it applies the reset rule with SQLite's own clock, 
 
 | Rule (FOR_READERS) | Here |
 |---|---|
-| never write | `PRAGMA query_only = ON`; the URI `file:…?mode=rw` never creates a missing database (a plain `connect` would); `quota_latest.json` is only read |
+| never write | `PRAGMA query_only = ON`; the URI `file:…?mode=rw` never creates a missing database (a plain `connect` would); `quota_latest.<name>.json` is only read |
 | never `mode=ro` (macOS refuses it intermittently on these WAL files) | `mode=rw` + `query_only` |
 | busy timeout | 10 s (`timeout=10`, `PRAGMA busy_timeout = 10000`) |
 | rule 8: a passed reset reads 0 % | applied with the caller's `now` in `read_meters`, and per row (at the row's `ts`) in `meter_history`: `pct` 0, `resets_at` None |
-| rule 16: a meter may be `null` in `quota_latest.json` | read as 0 %, reset unknown (no window open) |
+| rule 16: a meter may be `null` in `quota_latest.<name>.json` | read as 0 %, reset unknown (no window open) |
 | a quota % is account-wide | no function gives a session a %; `session_usd` gives $ only |
 
 A missing or broken file never raises from `read_meters`: it returns both meters with `pct` None, `stale` True and `error` set, so the shared check gives `nobody` (R41). `session_usd` returns `{}` when `sessions_usages.db` is absent; `meter_history` raises `FileNotFoundError`.
@@ -32,7 +32,7 @@ A missing or broken file never raises from `read_meters`: it returns both meters
 | Question | Answer | Verified |
 |---|---|---|
 | Is a reading fresh? | `stale` when `now − ts > READING_MAX_AGE_S` (600 s). Both meters share one reading, so both are stale together | — |
-| Which reading is "now"? | the larger `ts` of `quota_latest.json` and the newest `account_quotas` row with `ts ≤ now` (a replay never sees the future); on a tie, the JSON | 2026-11-16: both within 10 s of each other |
+| Which reading is "now"? | the larger `ts` of `quota_latest.<name>.json` and the newest `account_quotas` row with `ts ≤ now` (a replay never sees the future); on a tie, the JSON | 2026-11-16: both within 10 s of each other |
 | How often is there a reading? | the Mac's poller (`claude_api`) about every 2 min while Claude is used, the status line on each new value; the VM's poller less often | last 7 days: 2,541 Mac poller rows, 297 VM poller rows, 5,625 status line rows |
 | History keyed by `ts` or `written_ts`? | by `ts` (the tracker's rule 10). `written_ts` was tried first and rejected: a status line re-sent a week at 80 % on Sunday 2026-11-15 14:00 whose `ts` was Thursday 10:39, before the week's reset | 2026-11-16 |
 | The price of keying by `ts` | a status line row's `ts` is its session's last main-thread response: a session waiting on its subagents writes 55 %, 56 %… 59 % all with one `ts`, up to 15 min before they were true (`ts` 1794832592, written 1794832641 → 1794833481). The poller's rows, written at the same minutes, match the `written_ts` within seconds. Effect: a recent slope a little low at the edge of the 30 min; the × 1.5 covers it | 2026-11-16 |
@@ -52,11 +52,11 @@ A missing or broken file never raises from `read_meters`: it returns both meters
 | Two machines disagree | the VM's poller at 56 %, then the Mac's status line at 49 % | dropped the same way |
 | **The week reset early, its reset time unchanged** | Fri 2026-11-13 17:47:10: the poller reads week 95 % → 0 % (window 3 % → 0 %, a new window), `seven_day_resets_ts` still Mon 19:00. Contradicts "within one window the % never decreases" (FOR_READERS rule 10) for the week | a reset = the poller (`claude_api`) reading more than `RESET_FALL_PCT` (5) points below the poller's own running maximum; the meter re-opened at that reading. A status line is never trusted for a fall (its `ts` can be early) |
 | A stale high from before a reset | Fri 2026-11-13 17:47:13, status line: week 95 % with `ts` 17:33:36, written 3 s after the reset | keyed by its `ts`, it falls before the reset: harmless |
-| `quota_latest.json`'s `source` names differ from the table's | `poller` / `statusline` in the JSON; `claude_api` / `claude_statusline` in `account_quotas` | `Meters.source` keeps whichever was read; the cleaning uses the table's names |
+| `quota_latest.<name>.json`'s `source` names differ from the table's | `poller` / `statusline` in the JSON; `claude_api` / `claude_statusline` in `account_quotas` | `Meters.source` keeps whichever was read; the cleaning uses the table's names |
 
 ## 4b. Several Claude accounts (2026-11-19)
 
-agent-tracker's rule 19 (`FOR_READERS.md`): `account_quotas.account` is the organization uuid (NULL = before = the main account), the table `accounts` maps names to uuids, another account's file is `quota_latest.<name>.json`. `reading.py` reads **the session's own account**, named by `$CLAUDE_ACCOUNT` (set by my-setup's `claude-account`; unset or `a` = the main account, as before; any other name is a file `quota_latest.<name>.json` and the rows with that account's uuid; a name that is not `[a-z0-9_-]+` counts as `a`). A tracker from before the change answers for the main account only. Without this, a session on account b would read the newest row of any account and be throttled (or not) by a's quota. `forecast` and the protector's state (`state.py`) are unchanged: each hook call reads its own account's history, so the forecast of account b has little history until it is used (`meter_history` returns what exists).
+agent-tracker's rule 19 (`FOR_READERS.md`): `account_quotas.account` is the organization uuid (NULL = before 2026-11-19 = the account named a), the table `accounts` maps names to uuids, an account's file is `quota_latest.<name>.json`. `reading.py` reads **the session's own account**, named by `$CLAUDE_ACCOUNT` (set by my-setup's `claude-account`; the name selects the file `quota_latest.<name>.json` and the rows with that account's uuid). Unset, or a name that is not `[a-z0-9_-]+` (a session started outside the wrapper): the account with the most room left among the `quota_latest.<name>.json` files (room = 100 - max(5h %, 7d %), rule 8 at `now`; a tie: the first name; no file: `a`). A tracker from before 2026-11-19 (no `account` column) answers for the account named a only. Without this, a session on account b would read the newest row of any account and be throttled (or not) by a's quota. `forecast` and the protector's state (`state.py`) are unchanged: each hook call reads its own account's history, so the forecast of account b has little history until it is used (`meter_history` returns what exists).
 
 ## 5. Not solved in v1
 

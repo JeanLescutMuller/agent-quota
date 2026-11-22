@@ -5,7 +5,7 @@ What we build first, how the parts fit, and why. Serves [`REQUIREMENTS.md`](REQU
 | | |
 |---|---|
 | Command | `agent-quota` (`bin/agent-quota`): `status`, `decide`, `go-on`, `resume-now`, `mode`, `hook` |
-| Reads | the tracker (read-only, its `FOR_READERS.md` rules): `quota_latest.json`, the quota history (`account_quotas.db`), per-session $ (`telemetry` in `sessions_usages.db`); the hook's own registry of sessions |
+| Reads | the tracker (read-only, its `FOR_READERS.md` rules): `quota_latest.<name>.json`, the quota history (`account_quotas.db`), per-session $ (`telemetry` in `sessions_usages.db`); the hook's own registry of sessions |
 | Writes | `$AGENT_QUOTA_HOME` (default `~/opt/agent-quota/state/`): `decisions.json` (now), `decisions.jsonl` (history, R47), `sessions/<session_id>.json`, `overrides.json`, `mode` |
 | Acts | yes, when `mode` = `on`: holds tool calls of the sessions it decided to freeze. Default `observe`: decides and logs, never holds |
 | Consumed by | Jean (`agent-quota status`, the decision log); later the maximizer (`agent-quota state --json`, the shared check) |

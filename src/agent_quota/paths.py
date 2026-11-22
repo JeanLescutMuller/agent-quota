@@ -15,5 +15,5 @@ def home() -> Path:
 def tracker_dir() -> Path:
     """The tracker's Claude data folder, read-only: $AGENT_QUOTA_TRACKER, default ~/opt/agent-tracker/data/claude.
 
-    Holds quota_latest.json, account_quotas.db, sessions_usages.db (doc/reading.md)."""
+    Holds quota_latest.<name>.json, account_quotas.db, sessions_usages.db (doc/reading.md)."""
     return Path(os.environ.get("AGENT_QUOTA_TRACKER") or "~/opt/agent-tracker/data/claude").expanduser()
