@@ -5,6 +5,8 @@ import os
 import sys
 import unittest
 
+os.environ.pop("CLAUDE_ACCOUNT", None)   # the session's account (my-setup's claude-account) never leaks into a test
+
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'src'))
 
 from agent_quota import config as C  # noqa: E402

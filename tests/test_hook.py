@@ -12,6 +12,8 @@ import time
 import unittest
 from pathlib import Path
 
+os.environ.pop("CLAUDE_ACCOUNT", None)   # the session's account (my-setup's claude-account) never leaks into a test
+
 ROOT = Path(__file__).resolve().parent.parent
 BIN = str(ROOT / 'bin' / 'agent-quota')
 SID = 'sess-freeze-1'

@@ -12,6 +12,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+os.environ.pop("CLAUDE_ACCOUNT", None)   # the session's account (my-setup's claude-account) never leaks into a test
+
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'src'))
 
 from agent_quota import cli, store  # noqa: E402
