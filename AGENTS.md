@@ -1,6 +1,6 @@
 # agent-quota
 
-Development home: NAS (moving: until the move, edit it on the Mac; task D3). Why (U19, the user, 2026-11-22): the NAS by default; its Mac parts are installed on the Mac from GitHub with one command.
+Development home: NAS (`~/dev/agent-quota` on the NAS, since 2026-11-22; no copy on the Mac: `tm agent-quota` opens it). Why (U19, the user, 2026-11-22): the NAS by default; its Mac parts are installed on the Mac from GitHub with one command.
 
 **Quota management for Jean's Claude subscription, in two halves that never act at the same time: the protector pauses big jobs so Jean is never in a lockout; the maximizer spends spare quota before it is lost.**
 
