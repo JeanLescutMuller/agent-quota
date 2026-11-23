@@ -194,7 +194,7 @@ What the 48 h slope did to "lockout ahead" on the week (the replayed meter, minu
 ## Rerun
 
 ```sh
-cd /Users/jeanlescut/dev/agent-quota/lab/replay
+cd /Users/jeanlescut/dev/agents/agent-quota/lab/replay
 python3 data.py > out/data.log 2>&1 && python3 lockouts.py > out/lockouts.log 2>&1 && python3 replay.py > out/replay.log 2>&1 && python3 analyze.py > out/analyze.log 2>&1
 python3 replay.py v1.1 v1.1-week30 > out/replay_v1_1.log 2>&1   # §9 only: out/summary_v1.1_v1.1-week30.csv
 ```

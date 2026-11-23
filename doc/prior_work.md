@@ -47,7 +47,7 @@ What exists, inside Jean's own repos and online, for the protector and the maxim
 
 | Repo | Gives the protector | Gives the maximizer | Take | Paths |
 |---|---|---|---|---|
-| **the legacy agent-quota-maximizer** (in `tasks` history: `git -C /Users/jeanlescut/dev/tasks show 8c0c9fc^:legacy/agent-quota-maximizer/…`) | the forecasting lab and its bench; "active in the last 30 min" as the signal Jean will need Claude | `s3_budget.py` (window arithmetic), `s2_predict.py`, the 42-day replay | adapt (standard library; 261 tests passed 2026-10-11; reads old CSVs) | `release/aqm/`, `lab/02_prediction/`, `lab/07_pipeline/pipeline_replay.py` |
+| **the legacy agent-quota-maximizer** (in `tasks` history: `git -C /Users/jeanlescut/dev/agents/tasks show 8c0c9fc^:legacy/agent-quota-maximizer/…`) | the forecasting lab and its bench; "active in the last 30 min" as the signal Jean will need Claude | `s3_budget.py` (window arithmetic), `s2_predict.py`, the 42-day replay | adapt (standard library; 261 tests passed 2026-10-11; reads old CSVs) | `release/aqm/`, `lab/02_prediction/`, `lab/07_pipeline/pipeline_replay.py` |
 | **agent-tracker** | `quota_latest.json`; per-session $ in `telemetry` (live); who runs where (`agent-tracker now --json`) | `latest`, `slots`, B and B_week (`adhoc_quotas_analysis/budgets.py`, a manual script) | as-is, read-only | `FOR_READERS.md` |
 | **agent-resume** (`ares`) | builds `cd <dir> && claude --resume <uuid>` and types it into a tmux pane | — | adapt | `src/ares` (`tmux_plan`, `cmd_tmux`) |
 | **agent-auto-close** | a clean close (safety checks, saves the pane's screen, SIGTERM, types the resume command); refuses busy sessions, which are the protector's targets | — | adapt | `src/agent-auto-close` |

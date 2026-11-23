@@ -38,4 +38,4 @@ agent-quota resume-now <id>
 
 ## See also: several Claude accounts
 
-Several Claude accounts on one machine: the overview (why, designs, how to use it, every piece and where it lives) is `/Users/jeanlescut/dev/my-setup/doc/claude_accounts.html`.
+Several Claude accounts on one machine: the overview (why, designs, how to use it, every piece and where it lives) is `/Users/jeanlescut/dev/infra/my-setup/doc/claude_accounts.html`.

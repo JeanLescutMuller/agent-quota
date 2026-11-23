@@ -36,7 +36,7 @@ week (7 days)  0 % ── spare quota ──┤──── normal ────�
 - **One shared reading, three states.** If both halves read the same numbers through one function that returns exactly one of `spare quota` / `normal` / `lockout ahead`, they cannot both act: the states exclude each other by construction.
 - **A gap between the two ends.** Without one, a ping-pong is possible: the maximizer launches tasks, the projection crosses into lockout ahead, the protector pauses them, the projection falls, the maximizer launches again. Worked example: the maximizer may launch only if the projection *with its launch* stays at least G % below the protector's line. With G = 10 % and the protector's line at 95 %, a launch that would project 88 % is allowed; one that would project 90 % is not.
 - **The window and the week can disagree.** The week may hold spare quota while the current window has lockout ahead, e.g. Monday afternoon with a big job running. The table of §1 settles it: lockout ahead on either meter wins, and the maximizer waits.
-- **The maximizer already carries a protector-like check**: "skip if the 5-hour window is above 90 %" ([`maximizer/DESIGN.md`](maximizer/DESIGN.md) §5). So does the `tasks` auto-launch: launches wait above 90 % (`/Users/jeanlescut/dev/tasks/src/launch/step.py`, `QUOTA_MAX`). Both should become the shared check.
+- **The maximizer already carries a protector-like check**: "skip if the 5-hour window is above 90 %" ([`maximizer/DESIGN.md`](maximizer/DESIGN.md) §5). So does the `tasks` auto-launch: launches wait above 90 % (`/Users/jeanlescut/dev/agents/tasks/src/launch/step.py`, `QUOTA_MAX`). Both should become the shared check.
 
 ## 3. Shared inputs
 
@@ -46,5 +46,5 @@ week (7 days)  0 % ── spare quota ──┤──── normal ────�
 | $ and tokens per session, per folder | the tracker's databases (`FOR_READERS.md`) | exists |
 | B, B_week | measured by the maximizer (`maximizer/DESIGN.md` §6) | measured once, 2026-10-12 |
 
-- **The `tasks` quota guard is not a safe base.** It reads the tracker's new path since 2026-11-07 (`tasks` commit `bfb3cbb`; its `doc/task_manager.md` §4.2 still names the old one), but it opens the database with `mode=ro` (the tracker's rule 2 says macOS intermittently refuses it), lets launches through when the database is missing or unreadable, and checks neither the reading's age nor the week (`/Users/jeanlescut/dev/tasks/src/launch/step.py`, checked 2026-11-11). One shared reader, failing safe, avoids this.
+- **The `tasks` quota guard is not a safe base.** It reads the tracker's new path since 2026-11-07 (`tasks` commit `bfb3cbb`; its `doc/task_manager.md` §4.2 still names the old one), but it opens the database with `mode=ro` (the tracker's rule 2 says macOS intermittently refuses it), lets launches through when the database is missing or unreadable, and checks neither the reading's age nor the week (`/Users/jeanlescut/dev/agents/tasks/src/launch/step.py`, checked 2026-11-11). One shared reader, failing safe, avoids this.
 - **Mac and VM share one account.** Both machines burn the same windows; a half that runs on one machine only sees the other's sessions through the tracker.

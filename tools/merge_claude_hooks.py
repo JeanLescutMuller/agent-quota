@@ -2,7 +2,7 @@
 """Adds or removes agent-quota's hook group in ~/.claude/settings.json, touching nothing else.
 
 `hooks` is shared (skill config-ownership): ours is the PreToolUse group whose command contains MARK; `set` replaces it
-(a re-run never adds a second one), `unset` removes it. Origin: layer-firewall hooks/merge_claude_hooks.py.
+(a re-run never adds a second one), `unset` removes it. Origin: agent-firewall hooks/merge_claude_hooks.py.
 The group matches every tool, in subagents too, so that a freeze reaches all the work of a session (protector/DESIGN.md).
 `timeout` 21600 s (6 h) covers any window: a 5 h 05 min hold was tested (doc/prior_work.md §2). `onFailure` is left
 unset on purpose: the hook fails open (protector/DESIGN.md §8).

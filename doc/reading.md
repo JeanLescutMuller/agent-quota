@@ -1,6 +1,6 @@
 # Reading the tracker's data
 
-How agent-quota reads the quota and the $ from the tracker (agent-tracker), read-only: which files, which tables and columns, how fresh they are, and the traps found in the real rows. Code: `src/agent_quota/reading.py` (files), `src/agent_quota/forecast.py` (cleaning, burn rate). The tracker's own rules: `/Users/jeanlescut/dev/agent-tracker/FOR_READERS.md`. Verified against `/Users/jeanlescut/opt/agent-tracker/data/claude/` on 2026-11-16.
+How agent-quota reads the quota and the $ from the tracker (agent-tracker), read-only: which files, which tables and columns, how fresh they are, and the traps found in the real rows. Code: `src/agent_quota/reading.py` (files), `src/agent_quota/forecast.py` (cleaning, burn rate). The tracker's own rules: `/Users/jeanlescut/dev/agents/agent-tracker/FOR_READERS.md`. Verified against `/Users/jeanlescut/opt/agent-tracker/data/claude/` on 2026-11-16.
 
 ## 1. Files
 

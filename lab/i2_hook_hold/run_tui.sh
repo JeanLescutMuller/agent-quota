@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The I2 interactive test (2026-11-16): a real `claude` TUI in tmux, its Bash call held 120 s by hold_release.sh.
-# Usage: bash /Users/jeanlescut/dev/agent-tracker/tests/run_with_test_tmux.sh bash run_tui.sh <out_dir>
+# Usage: bash /Users/jeanlescut/dev/agents/agent-tracker/tests/run_with_test_tmux.sh bash run_tui.sh <out_dir>
 #   Refuses to run outside run_with_test_tmux.sh: every tmux call names the guard's throwaway socket (-S), never Jean's server.
 # Reads   hold_release.sh (beside this file)
 # Writes  <out_dir>/<test>/{settings.json, launch.sh, hook.log, marker_main, events, screens/<ts>_<label>.txt},

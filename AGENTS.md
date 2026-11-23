@@ -1,6 +1,6 @@
 # agent-quota
 
-Development home: NAS (`~/dev/agent-quota` on the NAS, since 2026-11-22; no copy on the Mac: `tm agent-quota` opens it). Why (U19, the user, 2026-11-22): the NAS by default; its Mac parts are installed on the Mac from GitHub with one command: `dev-install agent-quota` (my-setup).
+Development home: NAS (`~/dev/agents/agent-quota` on the NAS, since 2026-11-22; no copy on the Mac: `tm agent-quota` opens it). Why (U19, the user, 2026-11-22): the NAS by default; its Mac parts are installed on the Mac from GitHub with one command: `dev-install agent-quota` (my-setup).
 
 **Quota management for Jean's Claude subscription, in two halves that never act at the same time: the protector pauses big jobs so Jean is never in a lockout; the maximizer spends spare quota before it is lost.**
 
@@ -10,8 +10,8 @@ Development home: NAS (`~/dev/agent-quota` on the NAS, since 2026-11-22; no copy
 - **The hook must never break a session**: it fails open, catches everything, and stays fast when nothing is frozen. → [`protector/DESIGN.md`](protector/DESIGN.md) §8
 - **Tests never touch the real state or settings**: `AGENT_QUOTA_HOME`, `AGENT_QUOTA_TRACKER`, `CLAUDE_SETTINGS` point them at temp folders. Shared points: [`CONSIDERATIONS.md`](CONSIDERATIONS.md), [`REQUIREMENTS.md`](REQUIREMENTS.md).
 - **The two halves never act at the same time** (R1): any rule that lets one act must say which check makes the other impossible. The maximizer reads the week only; the protector, the window and the week. → [`CONSIDERATIONS.md`](CONSIDERATIONS.md) §1–2
-- **Read the quota only through agent-tracker** (`/Users/jeanlescut/dev/agent-tracker/FOR_READERS.md`): never write its files; a quota % is account-wide, never a session's.
-- **The maximizer's launches go through the `tasks` repo's launcher** (`/Users/jeanlescut/dev/tasks`); never a second launcher here.
+- **Read the quota only through agent-tracker** (`/Users/jeanlescut/dev/agents/agent-tracker/FOR_READERS.md`): never write its files; a quota % is account-wide, never a session's.
+- **The maximizer's launches go through the `tasks` repo's launcher** (`/Users/jeanlescut/dev/agents/tasks`); never a second launcher here.
 
 ## Commands
 
@@ -49,7 +49,7 @@ The only words for these concepts, in every file and when talking to Jean. A new
 | **unit** | one full window's $ (= B), for display only | — |
 | **unknown** | quota the meter moved that no machine's records explain (claude.ai, the phone apps, cloud sessions) | unallocated |
 | **subscription** | Claude, or ChatGPT/Codex: one quota meter each | agent |
-| **the tracker** | agent-tracker (`/Users/jeanlescut/dev/agent-tracker`), which records the quota readings and usage | agent-usage-tracker (old name) |
+| **the tracker** | agent-tracker (`/Users/jeanlescut/dev/agents/agent-tracker`), which records the quota readings and usage | agent-usage-tracker (old name) |
 | **Category 1 / 3 / 4** | the tracker's words: quota readings / 5-minute slots of $ and tokens / what a reader computes from them | — |
 
 ## Where to look
